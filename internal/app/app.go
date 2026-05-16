@@ -45,6 +45,7 @@ type model struct {
 	todoFilter  store.TodoFilter
 	ghCursor    int
 	githubPRs   []ghPR
+	githubErr   string
 	dashboard   []string
 	weather     []string
 	asu         []string
@@ -57,10 +58,12 @@ type loadedMsg struct {
 	lines []string
 }
 type githubLoadedMsg struct{ prs []ghPR }
+type githubErrorMsg struct{ err string }
 
 type ghPR struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
+	URL    string `json:"url"`
 	Repo   struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -195,6 +198,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.Focus()
 				m.status = "enter text and press Enter"
 			}
+		case "e":
+			if tabs[m.tab] == "Journal" {
+				m.status = "opening journal in editor"
+				return m, openInEditorCmd(journalTodayPath(m.journalDir))
+			}
+			if tabs[m.tab] == "Notes" {
+				m.status = "opening notes in editor"
+				return m, openInEditorCmd(notesInboxPath(m.notesDir))
+			}
 		case "j":
 			m = moveDown(m)
 		case "k":
@@ -213,8 +225,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o", "enter":
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
-				go exec.Command("gh", "pr", "view", fmt.Sprintf("%d", pr.Number), "--repo", pr.Repo.NameWithOwner, "--web").Run()
-				m.status = "opened PR in browser"
+				if pr.URL != "" {
+					go exec.Command("gh", "browse", pr.URL).Run()
+					m.status = "opened PR in browser"
+				}
 			}
 		case "t":
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
@@ -245,6 +259,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case githubLoadedMsg:
 		m.githubPRs = t.prs
+		m.githubErr = ""
+	case githubErrorMsg:
+		m.githubPRs = nil
+		m.githubErr = t.err
 	}
 	return m, nil
 }
@@ -315,7 +333,7 @@ func (m model) View() string {
 	}
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
-		body = "?: help | : command | a add | h/l tabs | j/k move\nTodos: x toggle, f filter\nGitHub: o open, t todo\nHabits: space toggle"
+		body = "?: help | : command | a add | h/l tabs | j/k move\nTodos: x toggle, f filter\nJournal/Notes: e open in editor\nGitHub: o open, t todo\nHabits: space toggle"
 	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
@@ -335,11 +353,13 @@ func (m model) currentTab() []string {
 	case "Todos":
 		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
-		return content.JournalLines(m.journalDir)
+		lines := []string{"Journal", "a add quick entry, e open full file", "", "Today:"}
+		return append(lines, content.JournalLines(m.journalDir)...)
 	case "Notes":
-		return content.NoteLines(m.notesDir)
+		lines := []string{"Notes", "a add quick note, e open inbox file", "", "Recent:"}
+		return append(lines, content.NoteLines(m.notesDir)...)
 	case "GitHub":
-		return renderGitHub(m.githubPRs, m.ghCursor)
+		return renderGitHub(m.githubPRs, m.ghCursor, m.githubErr)
 	case "ASU":
 		return m.asu
 	default:
@@ -382,8 +402,11 @@ func renderHabits(h []store.Habit, cursor int) []string {
 	return lines
 }
 
-func renderGitHub(prs []ghPR, cursor int) []string {
+func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
 	lines := []string{"GitHub", "j/k select, o open, t make todo", ""}
+	if errMsg != "" {
+		return append(lines, "Error: "+errMsg)
+	}
 	if len(prs) == 0 {
 		return append(lines, "No open pull requests")
 	}
@@ -413,7 +436,7 @@ func loadDashboard() tea.Cmd {
 
 func loadWeather() tea.Cmd {
 	return func() tea.Msg {
-		req, _ := http.NewRequest(http.MethodGet, "https://wttr.in/?format=j1", nil)
+		req, _ := http.NewRequest(http.MethodGet, "https://wttr.in/Cairo?format=j1", nil)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return loadedMsg{tab: "Weather", lines: []string{"Weather unavailable", err.Error()}}
@@ -421,9 +444,21 @@ func loadWeather() tea.Cmd {
 		defer res.Body.Close()
 		raw, _ := io.ReadAll(res.Body)
 		var payload struct {
+			NearestArea []struct {
+				AreaName []struct {
+					Value string `json:"value"`
+				} `json:"areaName"`
+				Country []struct {
+					Value string `json:"value"`
+				} `json:"country"`
+			} `json:"nearest_area"`
 			Current []struct {
-				TempC, FeelsLikeC, Humidity string
-				Desc                        []struct{ Value string } `json:"weatherDesc"`
+				TempC      string `json:"temp_C"`
+				FeelsLikeC string `json:"FeelsLikeC"`
+				Humidity   string `json:"humidity"`
+				Desc       []struct {
+					Value string `json:"value"`
+				} `json:"weatherDesc"`
 			} `json:"current_condition"`
 		}
 		if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Current) == 0 {
@@ -434,7 +469,16 @@ func loadWeather() tea.Cmd {
 		if len(c.Desc) > 0 {
 			d = c.Desc[0].Value
 		}
-		return loadedMsg{tab: "Weather", lines: []string{"Current weather", "", "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
+		place := "Cairo, Egypt"
+		if len(payload.NearestArea) > 0 {
+			if len(payload.NearestArea[0].AreaName) > 0 && payload.NearestArea[0].AreaName[0].Value != "" {
+				place = payload.NearestArea[0].AreaName[0].Value
+			}
+			if len(payload.NearestArea[0].Country) > 0 && payload.NearestArea[0].Country[0].Value != "" {
+				place += ", " + payload.NearestArea[0].Country[0].Value
+			}
+		}
+		return loadedMsg{tab: "Weather", lines: []string{"Current weather", "", "Place: " + place, "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
 	}
 }
 
@@ -444,9 +488,17 @@ func loadTodos(db *store.DB) tea.Cmd {
 
 func loadGitHub() tea.Cmd {
 	return func() tea.Msg {
-		raw := run("gh", "pr", "list", "-L", "10", "--json", "number,title,repository")
+		if _, err := exec.LookPath("gh"); err != nil {
+			return githubErrorMsg{err: "gh CLI not found"}
+		}
+		if err := exec.Command("gh", "auth", "status").Run(); err != nil {
+			return githubErrorMsg{err: "gh not authenticated"}
+		}
+		raw := run("gh", "search", "prs", "--author", "@me", "--state", "open", "--limit", "20", "--json", "number,title,url,repository")
 		var prs []ghPR
-		_ = json.Unmarshal([]byte(raw), &prs)
+		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
+			return githubErrorMsg{err: "failed to parse gh output"}
+		}
 		return githubLoadedMsg{prs: prs}
 	}
 }
@@ -457,9 +509,46 @@ func loadASU() tea.Cmd {
 		if _, err := os.Stat(bin); err != nil {
 			return loadedMsg{tab: "ASU", lines: []string{"ASU binary not found", "Expected at " + bin}}
 		}
-		who := run(bin, "whoami", "--json")
-		return loadedMsg{tab: "ASU", lines: []string{"ASU data", "", "Whoami:", who}}
+		who := run(bin, "whoami")
+		courses := run(bin, "courses")
+		return loadedMsg{tab: "ASU", lines: []string{"ASU snapshot", "", "Profile:", trimLong(who, 18), "", "Courses:", trimLong(courses, 30)}}
 	}
+}
+
+func openInEditorCmd(path string) tea.Cmd {
+	return tea.ExecProcess(editorCommand(path), func(err error) tea.Msg { return nil })
+}
+
+func editorCommand(path string) *exec.Cmd {
+	editor := strings.TrimSpace(os.Getenv("EDITOR"))
+	if editor == "" {
+		if _, err := exec.LookPath("nvim"); err == nil {
+			editor = "nvim"
+		} else {
+			editor = "vi"
+		}
+	}
+	cmd := exec.Command(editor, path)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+func journalTodayPath(journalDir string) string {
+	return journalDir + "/" + time.Now().Format("2006-01-02") + ".md"
+}
+
+func notesInboxPath(notesDir string) string {
+	return notesDir + "/inbox.md"
+}
+
+func trimLong(s string, maxLines int) string {
+	parts := strings.Split(strings.TrimSpace(s), "\n")
+	if len(parts) <= maxLines {
+		return strings.Join(parts, "\n")
+	}
+	return strings.Join(parts[:maxLines], "\n") + "\n..."
 }
 
 func asuBinaryPath() string {
@@ -468,6 +557,7 @@ func asuBinaryPath() string {
 	}
 	return "/home/sherqo/ac/go/eng-asu/asu"
 }
+
 func run(cmd string, args ...string) string {
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
