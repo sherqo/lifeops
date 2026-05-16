@@ -454,6 +454,10 @@ func renderJournal(journalDir string, cursor int) []string {
 	} else {
 		lines = append(lines, "Journal - Path: "+journalDir+" - Files: "+fmt.Sprintf("%d", len(files)))
 	}
+	
+	// Also show what's in the files list
+	lines = append(lines, "DEBUG files: "+fmt.Sprintf("%v", files))
+	
 	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
 	
 	if len(files) == 0 {
