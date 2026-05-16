@@ -26,6 +26,7 @@ type model struct {
 	width     int
 	height    int
 	status    string
+	helpMode  bool
 	inputMode bool
 	input     textinput.Model
 	dataDir   string
@@ -135,6 +136,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
 			return m, tea.Quit
+		case "?":
+			m.helpMode = !m.helpMode
+			if m.helpMode {
+				m.status = "help open"
+			} else {
+				m.status = "help closed"
+			}
 		case "h":
 			if m.tab > 0 {
 				m.tab--
@@ -193,6 +201,18 @@ func (m model) View() string {
 	}
 
 	body := strings.Join(currentTab(m), "\n")
+	if m.helpMode {
+		body = strings.Join([]string{
+			"Keymap",
+			"",
+			"h/l ........ switch tabs",
+			"1..7 ....... jump to tab",
+			"a .......... add item in Todos/Journal/Notes",
+			"r .......... refresh system/network tabs",
+			"? .......... toggle help",
+			"q or :q .... quit",
+		}, "\n")
+	}
 	if m.inputMode {
 		body += "\n\n" + m.input.View()
 	}
