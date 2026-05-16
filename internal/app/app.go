@@ -14,30 +14,41 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sherqo/lifeops/internal/config"
+	"github.com/sherqo/lifeops/internal/content"
 	"github.com/sherqo/lifeops/internal/store"
 )
 
-var tabs = []string{"Dashboard", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU"}
+var tabs = []string{"Dashboard", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
+
+type mode int
+
+const (
+	modeNormal mode = iota
+	modeInput
+	modeCommand
+)
 
 type model struct {
-	tab       int
-	width     int
-	height    int
-	status    string
-	helpMode  bool
-	inputMode bool
-	input     textinput.Model
-	dataDir   string
-	db        *store.DB
-
-	dashboard []string
-	weather   []string
-	todos     []string
-	journal   []string
-	notes     []string
-	githubPRs []ghPR
-	ghCursor  int
-	asu       []string
+	tab         int
+	width       int
+	status      string
+	helpMode    bool
+	mode        mode
+	input       textinput.Model
+	command     textinput.Model
+	dataDir     string
+	notesDir    string
+	journalDir  string
+	db          *store.DB
+	todoCursor  int
+	todoFilter  store.TodoFilter
+	ghCursor    int
+	githubPRs   []ghPR
+	dashboard   []string
+	weather     []string
+	asu         []string
+	habitCursor int
 }
 
 type refreshMsg struct{}
@@ -45,15 +56,11 @@ type loadedMsg struct {
 	tab   string
 	lines []string
 }
-
-type githubLoadedMsg struct {
-	prs []ghPR
-}
+type githubLoadedMsg struct{ prs []ghPR }
 
 type ghPR struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
-	URL    string `json:"url"`
 	Repo   struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -69,57 +76,52 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	store.EnsureDefaultHabits(db)
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		return err
+	}
+	notesDir, journalDir := config.ResolvePaths(dataDir, cfg)
+	if err := content.EnsureDirs(notesDir, journalDir); err != nil {
+		return err
+	}
 
 	in := textinput.New()
 	in.Placeholder = "Type and press Enter"
-	in.CharLimit = 500
 	in.Prompt = "> "
+	cmd := textinput.New()
+	cmd.Placeholder = "q | refresh | tab <name>"
+	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, db: db, input: in, status: "q quit | h/l tabs | r refresh | a add"}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, db: db, input: in, command: cmd, status: "q quit | : command | ? help"}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
-func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), loadAll(m.db))
-}
-
-func tick() tea.Cmd {
-	return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} })
-}
-
+func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadAll(m.db)) }
+func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
 func loadAll(db *store.DB) tea.Cmd {
-	return tea.Batch(
-		loadDashboard(),
-		loadWeather(),
-		loadTodos(db),
-		loadJournal(db),
-		loadNotes(db),
-		loadGitHub(),
-		loadASU(),
-	)
+	return tea.Batch(loadDashboard(), loadWeather(), loadGitHub(), loadASU(), loadTodos(db))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.inputMode {
+	if m.mode == modeInput {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
-		switch t := msg.(type) {
-		case tea.KeyMsg:
-			switch t.String() {
-			case "esc":
-				m.inputMode = false
+		if k, ok := msg.(tea.KeyMsg); ok {
+			if k.String() == "esc" {
+				m.mode = modeNormal
 				m.input.Blur()
-				m.status = "cancelled"
+				m.status = "input cancelled"
 				return m, nil
-			case "enter":
+			}
+			if k.String() == "enter" {
 				text := strings.TrimSpace(m.input.Value())
 				m.input.Reset()
-				m.inputMode = false
+				m.mode = modeNormal
 				m.input.Blur()
 				if text == "" {
-					m.status = "empty input"
 					return m, nil
 				}
 				switch tabs[m.tab] {
@@ -129,16 +131,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "todo added"
 					return m, loadTodos(m.db)
 				case "Notes":
-					store.AddNote(m.db, text)
-					_ = store.Save(m.dataDir, m.db)
+					_ = content.AddNote(m.notesDir, text)
 					m.status = "note added"
-					return m, loadNotes(m.db)
+					return m, nil
 				case "Journal":
-					store.AddJournalEntry(m.db, text)
-					_ = store.Save(m.dataDir, m.db)
+					_ = content.AddJournalEntry(m.journalDir, text)
 					m.status = "journal entry added"
-					return m, loadJournal(m.db)
+					return m, nil
 				}
+			}
+		}
+		return m, cmd
+	}
+	if m.mode == modeCommand {
+		var cmd tea.Cmd
+		m.command, cmd = m.command.Update(msg)
+		if k, ok := msg.(tea.KeyMsg); ok {
+			if k.String() == "esc" {
+				m.mode = modeNormal
+				m.command.Blur()
+				m.status = "command cancelled"
+				return m, nil
+			}
+			if k.String() == "enter" {
+				c := strings.TrimSpace(m.command.Value())
+				m.command.Reset()
+				m.mode = modeNormal
+				m.command.Blur()
+				return m, runCommand(&m, c)
 			}
 		}
 		return m, cmd
@@ -146,18 +166,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch t := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = t.Width, t.Height
+		m.width = t.Width
 	case tea.KeyMsg:
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
 			return m, tea.Quit
+		case ":":
+			m.mode = modeCommand
+			m.command.Focus()
+			m.status = "command mode"
+			return m, nil
 		case "?":
 			m.helpMode = !m.helpMode
-			if m.helpMode {
-				m.status = "help open"
-			} else {
-				m.status = "help closed"
-			}
+			return m, nil
 		case "h":
 			if m.tab > 0 {
 				m.tab--
@@ -166,26 +187,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.tab < len(tabs)-1 {
 				m.tab++
 			}
-		case "1", "2", "3", "4", "5", "6", "7":
-			m.tab = int(t.String()[0] - '1')
 		case "r":
-			m.status = "refreshing"
 			return m, loadAll(m.db)
 		case "a":
 			if tabs[m.tab] == "Todos" || tabs[m.tab] == "Notes" || tabs[m.tab] == "Journal" {
-				m.inputMode = true
+				m.mode = modeInput
 				m.input.Focus()
-				m.status = "enter text (esc to cancel)"
+				m.status = "enter text and press Enter"
 			}
 		case "j":
-			if tabs[m.tab] == "GitHub" && m.ghCursor < len(m.githubPRs)-1 {
-				m.ghCursor++
-				m.status = "selected PR moved down"
-			}
+			m = moveDown(m)
 		case "k":
-			if tabs[m.tab] == "GitHub" && m.ghCursor > 0 {
-				m.ghCursor--
-				m.status = "selected PR moved up"
+			m = moveUp(m)
+		case "x":
+			if tabs[m.tab] == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
+				_ = store.Save(m.dataDir, m.db)
+				m.status = "todo toggled"
+			}
+		case "f":
+			if tabs[m.tab] == "Todos" {
+				m.todoFilter = store.NextFilter(m.todoFilter)
+				m.todoCursor = 0
+				m.status = "todo filter: " + store.FilterLabel(m.todoFilter)
 			}
 		case "o", "enter":
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
@@ -199,36 +222,84 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo created from PR"
-				return m, loadTodos(m.db)
+			}
+		case " ":
+			if tabs[m.tab] == "Habits" && len(m.db.Habits) > 0 {
+				i := m.habitCursor
+				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
+				_ = store.Save(m.dataDir, m.db)
+				m.status = "habit toggled"
 			}
 		}
 	case refreshMsg:
 		return m, tea.Batch(loadDashboard(), loadWeather(), loadGitHub(), loadASU(), tick())
-	case githubLoadedMsg:
-		m.githubPRs = t.prs
-		if m.ghCursor >= len(m.githubPRs) {
-			m.ghCursor = max(0, len(m.githubPRs)-1)
-		}
-		m.status = "updated GitHub"
 	case loadedMsg:
-		switch t.tab {
-		case "Dashboard":
+		if t.tab == "Dashboard" {
 			m.dashboard = t.lines
-		case "Weather":
+		}
+		if t.tab == "Weather" {
 			m.weather = t.lines
-		case "Todos":
-			m.todos = t.lines
-		case "Journal":
-			m.journal = t.lines
-		case "Notes":
-			m.notes = t.lines
-		case "ASU":
+		}
+		if t.tab == "ASU" {
 			m.asu = t.lines
 		}
-		m.status = "updated " + t.tab
+	case githubLoadedMsg:
+		m.githubPRs = t.prs
 	}
-
 	return m, nil
+}
+
+func runCommand(m *model, c string) tea.Cmd {
+	parts := strings.Fields(c)
+	if len(parts) == 0 {
+		return nil
+	}
+	switch parts[0] {
+	case "q":
+		return tea.Quit
+	case "refresh":
+		return loadAll(m.db)
+	case "tab":
+		if len(parts) > 1 {
+			name := strings.ToLower(strings.Join(parts[1:], " "))
+			for i, t := range tabs {
+				if strings.ToLower(t) == name {
+					m.tab = i
+					break
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func moveDown(m model) model {
+	if tabs[m.tab] == "GitHub" && m.ghCursor < len(m.githubPRs)-1 {
+		m.ghCursor++
+	}
+	if tabs[m.tab] == "Todos" {
+		n := len(store.VisibleTodoIndices(m.db, m.todoFilter))
+		if m.todoCursor < n-1 {
+			m.todoCursor++
+		}
+	}
+	if tabs[m.tab] == "Habits" && m.habitCursor < len(m.db.Habits)-1 {
+		m.habitCursor++
+	}
+	return m
+}
+
+func moveUp(m model) model {
+	if tabs[m.tab] == "GitHub" && m.ghCursor > 0 {
+		m.ghCursor--
+	}
+	if tabs[m.tab] == "Todos" && m.todoCursor > 0 {
+		m.todoCursor--
+	}
+	if tabs[m.tab] == "Habits" && m.habitCursor > 0 {
+		m.habitCursor--
+	}
+	return m
 }
 
 func (m model) View() string {
@@ -242,66 +313,86 @@ func (m model) View() string {
 			head = append(head, inactive.Render(t))
 		}
 	}
-
-	body := strings.Join(currentTab(m), "\n")
+	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
-		body = strings.Join([]string{
-			"Keymap",
-			"",
-			"h/l ........ switch tabs",
-			"1..7 ....... jump to tab",
-			"a .......... add item in Todos/Journal/Notes",
-			"j/k ........ move GitHub PR selection",
-			"o or Enter . open selected GitHub PR",
-			"t .......... create todo from selected PR",
-			"r .......... refresh system/network tabs",
-			"? .......... toggle help",
-			"q or :q .... quit",
-		}, "\n")
+		body = "?: help | : command | a add | h/l tabs | j/k move\nTodos: x toggle, f filter\nGitHub: o open, t todo\nHabits: space toggle"
 	}
-	if m.inputMode {
+	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
 	}
-
-	return strings.Join([]string{
-		strings.Join(head, "  "),
-		strings.Repeat("-", max(20, m.width-2)),
-		body,
-		"",
-		"Status: " + m.status,
-	}, "\n")
+	if m.mode == modeCommand {
+		body += "\n\n" + m.command.View()
+	}
+	return strings.Join([]string{strings.Join(head, "  "), strings.Repeat("-", max(20, m.width-2)), body, "", "Status: " + m.status}, "\n")
 }
 
-func currentTab(m model) []string {
+func (m model) currentTab() []string {
 	switch tabs[m.tab] {
 	case "Dashboard":
 		return m.dashboard
 	case "Weather":
 		return m.weather
 	case "Todos":
-		return m.todos
+		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
-		return m.journal
+		return content.JournalLines(m.journalDir)
 	case "Notes":
-		return m.notes
+		return content.NoteLines(m.notesDir)
 	case "GitHub":
 		return renderGitHub(m.githubPRs, m.ghCursor)
-	default:
+	case "ASU":
 		return m.asu
+	default:
+		return renderHabits(m.db.Habits, m.habitCursor)
 	}
 }
 
+func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
+	idx := store.VisibleTodoIndices(db, filter)
+	lines := []string{"Todos (filter: " + store.FilterLabel(filter) + ")", "j/k move, x toggle, f cycle filter", ""}
+	if len(idx) == 0 {
+		return append(lines, "No todos")
+	}
+	for i, j := range idx {
+		t := db.Todos[j]
+		mark, p := "[ ]", "  "
+		if t.Completed {
+			mark = "[x]"
+		}
+		if i == cursor {
+			p = "> "
+		}
+		lines = append(lines, fmt.Sprintf("%s%s %s", p, mark, t.Text))
+	}
+	return lines
+}
+
+func renderHabits(h []store.Habit, cursor int) []string {
+	lines := []string{"Habits", "j/k move, space toggle", ""}
+	for i, x := range h {
+		m, p := "[ ]", "  "
+		if x.Completed {
+			m = "[x]"
+		}
+		if i == cursor {
+			p = "> "
+		}
+		lines = append(lines, fmt.Sprintf("%s%s %s", p, m, x.Name))
+	}
+	return lines
+}
+
 func renderGitHub(prs []ghPR, cursor int) []string {
-	lines := []string{"GitHub snapshot", "", "Pull requests:", "Use j/k to select, o/Enter to open, t to add todo", ""}
+	lines := []string{"GitHub", "j/k select, o open, t make todo", ""}
 	if len(prs) == 0 {
-		return append(lines, "No open pull requests or gh not authenticated")
+		return append(lines, "No open pull requests")
 	}
 	for i, pr := range prs {
-		prefix := "  "
+		p := "  "
 		if i == cursor {
-			prefix = "> "
+			p = "> "
 		}
-		lines = append(lines, fmt.Sprintf("%s#%d %s (%s)", prefix, pr.Number, pr.Title, pr.Repo.NameWithOwner))
+		lines = append(lines, fmt.Sprintf("%s#%d %s (%s)", p, pr.Number, pr.Title, pr.Repo.NameWithOwner))
 	}
 	return lines
 }
@@ -331,48 +422,31 @@ func loadWeather() tea.Cmd {
 		raw, _ := io.ReadAll(res.Body)
 		var payload struct {
 			Current []struct {
-				TempC      string `json:"temp_C"`
-				FeelsLikeC string `json:"FeelsLikeC"`
-				Humidity   string `json:"humidity"`
-				Desc       []struct {
-					Value string `json:"value"`
-				} `json:"weatherDesc"`
+				TempC, FeelsLikeC, Humidity string
+				Desc                        []struct{ Value string } `json:"weatherDesc"`
 			} `json:"current_condition"`
 		}
 		if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Current) == 0 {
 			return loadedMsg{tab: "Weather", lines: []string{"Could not decode weather data"}}
 		}
 		c := payload.Current[0]
-		desc := ""
+		d := ""
 		if len(c.Desc) > 0 {
-			desc = c.Desc[0].Value
+			d = c.Desc[0].Value
 		}
-		return loadedMsg{tab: "Weather", lines: []string{"Current weather", "", "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + desc}}
+		return loadedMsg{tab: "Weather", lines: []string{"Current weather", "", "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
 	}
 }
 
 func loadTodos(db *store.DB) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: store.TodoLines(db)} }
-}
-
-func loadNotes(db *store.DB) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Notes", lines: store.NoteLines(db)} }
-}
-
-func loadJournal(db *store.DB) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Journal", lines: store.JournalLines(db)} }
+	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: renderTodos(db, store.FilterAll, 0)} }
 }
 
 func loadGitHub() tea.Cmd {
 	return func() tea.Msg {
-		if _, err := exec.LookPath("gh"); err != nil {
-			return githubLoadedMsg{}
-		}
-		raw := run("gh", "pr", "list", "-L", "10", "--json", "number,title,url,repository")
+		raw := run("gh", "pr", "list", "-L", "10", "--json", "number,title,repository")
 		var prs []ghPR
-		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
-			return githubLoadedMsg{}
-		}
+		_ = json.Unmarshal([]byte(raw), &prs)
 		return githubLoadedMsg{prs: prs}
 	}
 }
@@ -384,8 +458,7 @@ func loadASU() tea.Cmd {
 			return loadedMsg{tab: "ASU", lines: []string{"ASU binary not found", "Expected at " + bin}}
 		}
 		who := run(bin, "whoami", "--json")
-		courses := run(bin, "courses", "--json")
-		return loadedMsg{tab: "ASU", lines: []string{"ASU data", "", "Whoami:", who, "", "Courses:", courses}}
+		return loadedMsg{tab: "ASU", lines: []string{"ASU data", "", "Whoami:", who}}
 	}
 }
 
@@ -395,17 +468,12 @@ func asuBinaryPath() string {
 	}
 	return "/home/sherqo/ac/go/eng-asu/asu"
 }
-
 func run(cmd string, args ...string) string {
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
 		return strings.TrimSpace(string(out))
 	}
-	text := strings.TrimSpace(string(out))
-	if len(text) > 600 {
-		text = text[:600] + "..."
-	}
-	return text
+	return strings.TrimSpace(string(out))
 }
 
 func parseMem() ([2]float64, error) {
@@ -426,9 +494,7 @@ func parseMem() ([2]float64, error) {
 			fmt.Sscanf(f[1], "%f", &avail)
 		}
 	}
-	used := (total - avail) / 1024 / 1024
-	tot := total / 1024 / 1024
-	return [2]float64{used, tot}, nil
+	return [2]float64{(total - avail) / 1024 / 1024, total / 1024 / 1024}, nil
 }
 
 func max(a, b int) int {
