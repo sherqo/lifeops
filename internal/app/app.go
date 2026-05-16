@@ -63,6 +63,7 @@ type loadedMsg struct {
 	tab   string
 	lines []string
 }
+type journalRefreshMsg struct{}
 type githubLoadedMsg struct{ prs []ghPR }
 type githubErrorMsg struct{ err string }
 
@@ -152,7 +153,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "Journal":
 					_ = content.AddJournalEntry(m.journalDir, text)
 					m.status = "journal entry added"
-					return m, nil
+					m.journalCursor = 0
+					return m, func() tea.Msg { return journalRefreshMsg{} }
 				}
 			}
 		}
@@ -300,6 +302,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case githubErrorMsg:
 		m.githubPRs = nil
 		m.githubErr = t.err
+	case journalRefreshMsg:
+		m.status = "journal refreshed"
 	}
 	return m, nil
 }
@@ -446,7 +450,7 @@ func (m model) currentTab() []string {
 func renderJournal(journalDir string, cursor int) []string {
 	files := journalFilesForDisplay(journalDir)
 	lines := []string{}
-	
+
 	// Debug info
 	if _, err := os.Stat(journalDir); os.IsNotExist(err) {
 		lines = append(lines, "ERROR: Journal directory does not exist: "+journalDir)
@@ -454,12 +458,12 @@ func renderJournal(journalDir string, cursor int) []string {
 	} else {
 		lines = append(lines, "Journal - Path: "+journalDir+" - Files: "+fmt.Sprintf("%d", len(files)))
 	}
-	
+
 	// Also show what's in the files list
 	lines = append(lines, "DEBUG files: "+fmt.Sprintf("%v", files))
-	
+
 	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
-	
+
 	if len(files) == 0 {
 		return append(lines, "No journal files found - add .md files to your journal directory")
 	}
