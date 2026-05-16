@@ -22,6 +22,7 @@ go run ./
 - `h` / `l`: previous/next tab
 - `1..7`: jump to tab
 - `a`: add item (Todos, Journal, Notes)
+- `?`: toggle keymap help
 - `r`: refresh remote/system tabs
 - `q` or `:q`: quit
 
