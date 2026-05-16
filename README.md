@@ -24,6 +24,7 @@ go run ./
 - `h` / `l`: previous/next tab
 - `:`: command palette (`q`, `refresh`, `tab <name>`)
 - `a`: add item (Todos, Journal, Notes)
+- `e`: open Journal/Notes markdown in `$EDITOR` (falls back to `nvim`/`vi`)
 - `?`: toggle keymap help
 - `j` / `k`: move selection in lists (Todos, GitHub, Habits)
 - `x`: toggle selected todo complete/incomplete
@@ -47,4 +48,6 @@ You can also set paths in `~/.config/lifeops/config.json` (see `config.example.j
 ## Notes
 
 - GitHub tab requires authenticated `gh` CLI.
+- GitHub tab uses `gh search prs --author @me --state open` so it works across repositories.
 - ASU tab defaults to `/home/sherqo/ac/go/eng-asu/asu` and can be overridden with `LIFEOPS_ASU_BIN`.
+- Weather defaults to Cairo (`wttr.in/Cairo`) and shows detected place.
