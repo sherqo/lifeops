@@ -23,12 +23,25 @@ func AddNote(notesDir, text string) error {
 }
 
 func AddJournalEntry(journalDir, text string) error {
-	// Create a new file with timestamp in filename
-	name := time.Now().Format("2006-01-02_1504") + ".md"
+	// Normalize the text to be a valid filename (lowercase, dashes instead of spaces)
+	name := normalizeFilename(text) + ".md"
 	path := filepath.Join(journalDir, name)
-	// Also include timestamp inside the file content
-	content := "# " + time.Now().Format("2006-01-02 15:04") + "\n\n" + text + "\n"
-	return os.WriteFile(path, []byte(content), 0o600)
+	// Create empty file - user will fill it in editor
+	return os.WriteFile(path, []byte(""), 0o600)
+}
+
+func normalizeFilename(text string) string {
+	// Convert to lowercase and replace spaces with dashes
+	result := strings.ToLower(text)
+	result = strings.ReplaceAll(result, " ", "-")
+	// Remove any characters that aren't alphanumeric or dashes
+	var cleaned []rune
+	for _, r := range result {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			cleaned = append(cleaned, r)
+		}
+	}
+	return string(cleaned)
 }
 
 func NoteLines(notesDir string) []string {
