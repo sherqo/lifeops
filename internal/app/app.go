@@ -445,9 +445,19 @@ func (m model) currentTab() []string {
 
 func renderJournal(journalDir string, cursor int) []string {
 	files := journalFilesForDisplay(journalDir)
-	lines := []string{"Journal", "j/k select file, Enter/e open in nvim/editor, a quick add", "", "Path: " + journalDir, ""}
+	lines := []string{}
+	
+	// Debug info
+	if _, err := os.Stat(journalDir); os.IsNotExist(err) {
+		lines = append(lines, "ERROR: Journal directory does not exist: "+journalDir)
+		lines = append(lines, "Use :set-journal <path> to set a valid path")
+	} else {
+		lines = append(lines, "Journal - Path: "+journalDir+" - Files: "+fmt.Sprintf("%d", len(files)))
+	}
+	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
+	
 	if len(files) == 0 {
-		return append(lines, "No journal files found")
+		return append(lines, "No journal files found - add .md files to your journal directory")
 	}
 	for i, path := range files {
 		name := filepath.Base(path)
