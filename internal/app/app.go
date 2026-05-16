@@ -113,6 +113,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if k.String() == "esc" {
 				m.mode = modeNormal
 				m.input.Blur()
+				m.status = "input cancelled"
 				return m, nil
 			}
 			if k.String() == "enter" {
@@ -127,12 +128,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "Todos":
 					store.AddTodo(m.db, text)
 					_ = store.Save(m.dataDir, m.db)
+					m.status = "todo added"
 					return m, loadTodos(m.db)
 				case "Notes":
 					_ = content.AddNote(m.notesDir, text)
+					m.status = "note added"
 					return m, nil
 				case "Journal":
 					_ = content.AddJournalEntry(m.journalDir, text)
+					m.status = "journal entry added"
 					return m, nil
 				}
 			}
@@ -146,6 +150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if k.String() == "esc" {
 				m.mode = modeNormal
 				m.command.Blur()
+				m.status = "command cancelled"
 				return m, nil
 			}
 			if k.String() == "enter" {
@@ -169,6 +174,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ":":
 			m.mode = modeCommand
 			m.command.Focus()
+			m.status = "command mode"
 			return m, nil
 		case "?":
 			m.helpMode = !m.helpMode
@@ -187,6 +193,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tabs[m.tab] == "Todos" || tabs[m.tab] == "Notes" || tabs[m.tab] == "Journal" {
 				m.mode = modeInput
 				m.input.Focus()
+				m.status = "enter text and press Enter"
 			}
 		case "j":
 			m = moveDown(m)
@@ -195,28 +202,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			if tabs[m.tab] == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
 				_ = store.Save(m.dataDir, m.db)
+				m.status = "todo toggled"
 			}
 		case "f":
 			if tabs[m.tab] == "Todos" {
 				m.todoFilter = store.NextFilter(m.todoFilter)
 				m.todoCursor = 0
+				m.status = "todo filter: " + store.FilterLabel(m.todoFilter)
 			}
 		case "o", "enter":
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				go exec.Command("gh", "pr", "view", fmt.Sprintf("%d", pr.Number), "--repo", pr.Repo.NameWithOwner, "--web").Run()
+				m.status = "opened PR in browser"
 			}
 		case "t":
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
 				_ = store.Save(m.dataDir, m.db)
+				m.status = "todo created from PR"
 			}
 		case " ":
 			if tabs[m.tab] == "Habits" && len(m.db.Habits) > 0 {
 				i := m.habitCursor
 				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
 				_ = store.Save(m.dataDir, m.db)
+				m.status = "habit toggled"
 			}
 		}
 	case refreshMsg:
