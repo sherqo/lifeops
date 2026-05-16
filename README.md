@@ -6,6 +6,7 @@
 
 - Tabs with Vim-like navigation (`h`/`l`, `q`)
 - Dashboard with local machine information
+- Calendar tab with month view and Google Calendar events
 - Weather via wttr.in
 - JSON-backed todos with toggles and filters
 - Markdown-backed notes and daily journal
@@ -23,6 +24,8 @@ go run ./
 
 - `h` / `l`: previous/next tab
 - `:`: command palette (`q`, `refresh`, `tab <name>`)
+- `n` / `p`: next/previous month in Calendar tab
+- `T`: jump Calendar tab to current month
 - `a`: add item (Todos, Journal, Notes)
 - `e`: open Journal/Notes markdown in `$EDITOR` (falls back to `nvim`/`vi`)
 - `?`: toggle keymap help
@@ -48,6 +51,8 @@ You can also set paths in `~/.config/lifeops/config.json` (see `config.example.j
 ## Notes
 
 - GitHub tab requires authenticated `gh` CLI.
+- Calendar uses configured ICS feeds from `~/.config/lifeops/config.json` (`calendar_ics_urls`).
+- Keep private ICS links in local config only; do not commit them.
 - GitHub tab uses `gh search prs --author @me --state open` so it works across repositories.
 - ASU tab defaults to `/home/sherqo/ac/go/eng-asu/asu` and can be overridden with `LIFEOPS_ASU_BIN`.
 - Weather defaults to Cairo (`wttr.in/Cairo`) and shows detected place.

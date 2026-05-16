@@ -19,7 +19,7 @@ import (
 	"github.com/sherqo/lifeops/internal/store"
 )
 
-var tabs = []string{"Dashboard", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
+var tabs = []string{"Dashboard", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
 
 type mode int
 
@@ -47,6 +47,9 @@ type model struct {
 	githubPRs   []ghPR
 	githubErr   string
 	dashboard   []string
+	calendar    []string
+	calMonth    time.Time
+	calendarICS []string
 	weather     []string
 	asu         []string
 	habitCursor int
@@ -69,6 +72,8 @@ type ghPR struct {
 	} `json:"repository"`
 }
 
+var defaultCalendarICS []string
+
 func Run() error {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -88,6 +93,10 @@ func Run() error {
 	if err := content.EnsureDirs(notesDir, journalDir); err != nil {
 		return err
 	}
+	calendarICS := cfg.CalendarICS
+	if len(calendarICS) == 0 {
+		calendarICS = defaultCalendarICS
+	}
 
 	in := textinput.New()
 	in.Placeholder = "Type and press Enter"
@@ -96,16 +105,16 @@ func Run() error {
 	cmd.Placeholder = "q | refresh | tab <name>"
 	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, db: db, input: in, command: cmd, status: "q quit | : command | ? help"}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadAll(m.db)) }
+func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadAll(m.db, m.calMonth, m.calendarICS)) }
 func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
-func loadAll(db *store.DB) tea.Cmd {
-	return tea.Batch(loadDashboard(), loadWeather(), loadGitHub(), loadASU(), loadTodos(db))
+func loadAll(db *store.DB, month time.Time, feeds []string) tea.Cmd {
+	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadWeather(), loadGitHub(), loadASU(), loadTodos(db))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -191,7 +200,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tab++
 			}
 		case "r":
-			return m, loadAll(m.db)
+			return m, loadAll(m.db, m.calMonth, m.calendarICS)
+		case "n":
+			if tabs[m.tab] == "Calendar" {
+				m.calMonth = m.calMonth.AddDate(0, 1, 0)
+				m.status = "calendar next month"
+				return m, loadCalendar(m.calMonth, m.calendarICS)
+			}
+		case "p":
+			if tabs[m.tab] == "Calendar" {
+				m.calMonth = m.calMonth.AddDate(0, -1, 0)
+				m.status = "calendar previous month"
+				return m, loadCalendar(m.calMonth, m.calendarICS)
+			}
+		case "T":
+			if tabs[m.tab] == "Calendar" {
+				m.calMonth = firstOfMonth(time.Now())
+				m.status = "calendar current month"
+				return m, loadCalendar(m.calMonth, m.calendarICS)
+			}
 		case "a":
 			if tabs[m.tab] == "Todos" || tabs[m.tab] == "Notes" || tabs[m.tab] == "Journal" {
 				m.mode = modeInput
@@ -246,10 +273,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case refreshMsg:
-		return m, tea.Batch(loadDashboard(), loadWeather(), loadGitHub(), loadASU(), tick())
+		return m, tea.Batch(loadDashboard(), loadCalendar(m.calMonth, m.calendarICS), loadWeather(), loadGitHub(), loadASU(), tick())
 	case loadedMsg:
 		if t.tab == "Dashboard" {
 			m.dashboard = t.lines
+		}
+		if t.tab == "Calendar" {
+			m.calendar = t.lines
 		}
 		if t.tab == "Weather" {
 			m.weather = t.lines
@@ -276,7 +306,7 @@ func runCommand(m *model, c string) tea.Cmd {
 	case "q":
 		return tea.Quit
 	case "refresh":
-		return loadAll(m.db)
+		return loadAll(m.db, m.calMonth, m.calendarICS)
 	case "tab":
 		if len(parts) > 1 {
 			name := strings.ToLower(strings.Join(parts[1:], " "))
@@ -333,7 +363,7 @@ func (m model) View() string {
 	}
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
-		body = "?: help | : command | a add | h/l tabs | j/k move\nTodos: x toggle, f filter\nJournal/Notes: e open in editor\nGitHub: o open, t todo\nHabits: space toggle"
+		body = "?: help | : command | a add | h/l tabs | j/k move\nCalendar: n/p month, T today\nTodos: x toggle, f filter\nJournal/Notes: e open in editor\nGitHub: o open, t todo\nHabits: space toggle"
 	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
@@ -348,6 +378,8 @@ func (m model) currentTab() []string {
 	switch tabs[m.tab] {
 	case "Dashboard":
 		return m.dashboard
+	case "Calendar":
+		return m.calendar
 	case "Weather":
 		return m.weather
 	case "Todos":
@@ -432,6 +464,176 @@ func loadDashboard() tea.Cmd {
 		}
 		return loadedMsg{tab: "Dashboard", lines: lines}
 	}
+}
+
+func loadCalendar(month time.Time, feeds []string) tea.Cmd {
+	return func() tea.Msg {
+		lines := []string{
+			"Calendar",
+			"n next month, p previous month, T current month",
+			"",
+			month.Format("January 2006"),
+		}
+		lines = append(lines, renderMonth(month)...)
+		lines = append(lines, "", "Google Calendar events:")
+		lines = append(lines, loadGoogleEvents(month, feeds)...)
+		return loadedMsg{tab: "Calendar", lines: lines}
+	}
+}
+
+func renderMonth(month time.Time) []string {
+	first := firstOfMonth(month)
+	last := first.AddDate(0, 1, -1)
+	offset := int(first.Weekday())
+	if offset == 0 {
+		offset = 7
+	}
+	offset--
+
+	lines := []string{"Mo Tu We Th Fr Sa Su"}
+	week := make([]string, 0, 7)
+	for i := 0; i < offset; i++ {
+		week = append(week, "  ")
+	}
+
+	today := time.Now()
+	for day := 1; day <= last.Day(); day++ {
+		d := time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, first.Location())
+		cell := fmt.Sprintf("%2d", day)
+		if d.Year() == today.Year() && d.YearDay() == today.YearDay() {
+			cell = "[" + fmt.Sprintf("%d", day) + "]"
+		}
+		week = append(week, cell)
+		if len(week) == 7 {
+			lines = append(lines, strings.Join(week, " "))
+			week = week[:0]
+		}
+	}
+	if len(week) > 0 {
+		for len(week) < 7 {
+			week = append(week, "  ")
+		}
+		lines = append(lines, strings.Join(week, " "))
+	}
+	return lines
+}
+
+func loadGoogleEvents(month time.Time, feeds []string) []string {
+	if len(feeds) == 0 {
+		return []string{"No calendar feeds configured"}
+	}
+	var lines []string
+	for i, feed := range feeds {
+		name := fmt.Sprintf("Calendar %d", i+1)
+		if strings.Contains(feed, "holiday") {
+			name = "Egypt Holidays"
+		} else if strings.Contains(feed, "import.calendar.google.com") {
+			name = "Imported Calendar"
+		} else if strings.Contains(feed, "sharqawycs") {
+			name = "Personal Calendar"
+		}
+		lines = append(lines, name+":")
+		items := loadICSEvents(feed, month)
+		if len(items) == 0 {
+			lines = append(lines, "- No events")
+		} else {
+			lines = append(lines, items...)
+		}
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+func loadICSEvents(url string, month time.Time) []string {
+	res, err := http.Get(url)
+	if err != nil {
+		return []string{"ICS fetch failed: " + err.Error()}
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		return []string{"ICS read failed: " + err.Error()}
+	}
+	items := parseICSMonth(string(raw), month)
+	if len(items) == 0 {
+		return nil
+	}
+	if len(items) > 8 {
+		items = append(items[:8], "...")
+	}
+	return items
+}
+
+func parseICSMonth(ics string, month time.Time) []string {
+	lines := strings.Split(ics, "\n")
+	monthStart := firstOfMonth(month)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	var out []string
+
+	inEvent := false
+	var dt string
+	var summary string
+
+	flush := func() {
+		if dt == "" || summary == "" {
+			return
+		}
+		t, err := parseICSTime(dt)
+		if err != nil {
+			return
+		}
+		if !t.Before(monthStart) && t.Before(monthEnd) {
+			out = append(out, "- "+t.Format("2006-01-02 15:04")+" | "+summary)
+		}
+	}
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		switch line {
+		case "BEGIN:VEVENT":
+			inEvent = true
+			dt = ""
+			summary = ""
+			continue
+		case "END:VEVENT":
+			if inEvent {
+				flush()
+			}
+			inEvent = false
+			continue
+		}
+		if !inEvent {
+			continue
+		}
+		if strings.HasPrefix(line, "DTSTART") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				dt = parts[1]
+			}
+		}
+		if strings.HasPrefix(line, "SUMMARY:") {
+			summary = strings.TrimPrefix(line, "SUMMARY:")
+		}
+	}
+
+	return out
+}
+
+func parseICSTime(v string) (time.Time, error) {
+	if t, err := time.Parse("20060102T150405Z", v); err == nil {
+		return t.Local(), nil
+	}
+	if t, err := time.Parse("20060102T150405", v); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("20060102", v); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("bad ICS time")
+}
+
+func firstOfMonth(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 }
 
 func loadWeather() tea.Cmd {

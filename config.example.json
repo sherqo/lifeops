@@ -1,4 +1,8 @@
 {
   "notes_dir": "/home/you/notes/lifeops",
-  "journal_dir": "/home/you/journal/lifeops"
+  "journal_dir": "/home/you/journal/lifeops",
+  "calendar_ics_urls": [
+    "https://calendar.google.com/calendar/ical/your-private-calendar/basic.ics",
+    "https://calendar.google.com/calendar/ical/your-other-calendar/basic.ics"
+  ]
 }

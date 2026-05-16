@@ -10,8 +10,9 @@ import (
 const fileName = "config.json"
 
 type Config struct {
-	NotesDir   string `json:"notes_dir"`
-	JournalDir string `json:"journal_dir"`
+	NotesDir    string   `json:"notes_dir"`
+	JournalDir  string   `json:"journal_dir"`
+	CalendarICS []string `json:"calendar_ics_urls"`
 }
 
 func Load(dataDir string) (*Config, error) {
