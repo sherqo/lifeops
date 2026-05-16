@@ -268,8 +268,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				if pr.URL != "" {
-					go exec.Command("gh", "browse", pr.URL).Run()
-					m.status = "opened PR in browser"
+					m.status = "PR URL: " + pr.URL
+				} else {
+					m.status = "no PR URL available"
 				}
 			}
 		case "t":
@@ -473,10 +474,7 @@ func renderJournal(journalDir string, cursor int) []string {
 		lines = append(lines, "Journal - Path: "+journalDir+" - Files: "+fmt.Sprintf("%d", len(files)))
 	}
 
-	// Also show what's in the files list
-	lines = append(lines, "DEBUG files: "+fmt.Sprintf("%v", files))
-
-	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
+lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
 
 	if len(files) == 0 {
 		return append(lines, "No journal files found - add .md files to your journal directory")
