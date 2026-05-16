@@ -56,6 +56,7 @@ type model struct {
 	asu           []string
 	habitCursor   int
 	journalCursor int
+	notesCursor  int
 }
 
 type refreshMsg struct{}
@@ -149,7 +150,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "Notes":
 					_ = content.AddNote(m.notesDir, text)
 					m.status = "note added"
-					return m, nil
+					m.notesCursor = 0
+					return m, func() tea.Msg { return journalRefreshMsg{} }
 				case "Journal":
 					_ = content.AddJournalEntry(m.journalDir, text)
 					m.status = "journal entry added"
@@ -237,7 +239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if tabs[m.tab] == "Notes" {
 				m.status = "opening notes in editor"
-				return m, openInEditorCmd(notesInboxPath(m.notesDir))
+				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
 		case "j":
 			m = moveDown(m)
@@ -258,6 +260,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tabs[m.tab] == "Journal" {
 				m.status = "opening journal in editor"
 				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
+			}
+			if tabs[m.tab] == "Notes" {
+				m.status = "opening notes in editor"
+				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
@@ -380,6 +386,12 @@ func moveDown(m model) model {
 			m.journalCursor++
 		}
 	}
+	if tabs[m.tab] == "Notes" {
+		n := len(notesFilesForDisplay(m.notesDir))
+		if m.notesCursor < n-1 {
+			m.notesCursor++
+		}
+	}
 	return m
 }
 
@@ -395,6 +407,9 @@ func moveUp(m model) model {
 	}
 	if tabs[m.tab] == "Journal" && m.journalCursor > 0 {
 		m.journalCursor--
+	}
+	if tabs[m.tab] == "Notes" && m.notesCursor > 0 {
+		m.notesCursor--
 	}
 	return m
 }
@@ -436,8 +451,7 @@ func (m model) currentTab() []string {
 	case "Journal":
 		return renderJournal(m.journalDir, m.journalCursor)
 	case "Notes":
-		lines := []string{"Notes", "a add quick note, e open inbox file", "", "Recent:"}
-		return append(lines, content.NoteLines(m.notesDir)...)
+		return renderNotes(m.notesDir, m.notesCursor)
 	case "GitHub":
 		return renderGitHub(m.githubPRs, m.ghCursor, m.githubErr)
 	case "ASU":
@@ -498,6 +512,56 @@ func selectedJournalPath(journalDir string, cursor int) string {
 	files := journalFilesForDisplay(journalDir)
 	if len(files) == 0 {
 		return journalTodayPath(journalDir)
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(files) {
+		cursor = len(files) - 1
+	}
+	return files[cursor]
+}
+
+func renderNotes(notesDir string, cursor int) []string {
+	files := notesFilesForDisplay(notesDir)
+	lines := []string{}
+
+	if _, err := os.Stat(notesDir); os.IsNotExist(err) {
+		lines = append(lines, "ERROR: Notes directory does not exist: "+notesDir)
+		lines = append(lines, "Use :set-notes <path> to set a valid path")
+	} else {
+		lines = append(lines, "Notes - Path: "+notesDir+" - Files: "+fmt.Sprintf("%d", len(files)))
+	}
+
+	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a create new", "")
+
+	if len(files) == 0 {
+		return append(lines, "No notes found - press 'a' to create one")
+	}
+	for i, path := range files {
+		name := filepath.Base(path)
+		p := "  "
+		if i == cursor {
+			p = "> "
+		}
+		lines = append(lines, p+name)
+	}
+	return lines
+}
+
+func notesFilesForDisplay(notesDir string) []string {
+	files := content.RecentNotesFiles(notesDir)
+	if len(files) == 0 {
+		return []string{}
+	}
+	// Sort by modification time, newest first is already done in RecentNotesFiles
+	return files
+}
+
+func selectedNotesPath(notesDir string, cursor int) string {
+	files := notesFilesForDisplay(notesDir)
+	if len(files) == 0 {
+		return ""
 	}
 	if cursor < 0 {
 		cursor = 0

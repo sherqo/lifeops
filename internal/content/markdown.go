@@ -18,8 +18,11 @@ func EnsureDirs(notesDir, journalDir string) error {
 }
 
 func AddNote(notesDir, text string) error {
-	path := filepath.Join(notesDir, "inbox.md")
-	return appendLine(path, "- ["+time.Now().Format("2006-01-02 15:04")+"] "+text)
+	// Normalize the text to be a valid filename (lowercase, dashes instead of spaces)
+	name := normalizeFilename(text) + ".md"
+	path := filepath.Join(notesDir, name)
+	// Create empty file - user will fill it in editor
+	return os.WriteFile(path, []byte(""), 0o600)
 }
 
 func AddJournalEntry(journalDir, text string) error {
@@ -117,6 +120,53 @@ func RecentJournalFiles(journalDir string) []string {
 		if strings.HasSuffix(name, ".md") && !strings.Contains(name, "_") {
 			// Could still include if you want, but let's focus on new entries
 			// return nil 
+		}
+		st, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		files = append(files, fileInfo{path: path, modTime: st.ModTime()})
+		return nil
+	})
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modTime.After(files[j].modTime)
+	})
+
+	if len(files) > 30 {
+		files = files[:30]
+	}
+
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f.path)
+	}
+	return out
+}
+
+func RecentNotesFiles(notesDir string) []string {
+	if notesDir == "" {
+		return []string{}
+	}
+	
+	info, err := os.Stat(notesDir)
+	if err != nil || !info.IsDir() {
+		return []string{}
+	}
+
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+	}
+	var files []fileInfo
+
+	_ = filepath.WalkDir(notesDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		name := strings.ToLower(d.Name())
+		if !strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".markdown") {
+			return nil
 		}
 		st, statErr := d.Info()
 		if statErr != nil {
