@@ -23,16 +23,17 @@ go run ./
 - `1..7`: jump to tab
 - `a`: add item (Todos, Journal, Notes)
 - `?`: toggle keymap help
+- `j` / `k`: move GitHub PR selection
+- `o` or `Enter`: open selected GitHub PR
+- `t`: create todo from selected GitHub PR
 - `r`: refresh remote/system tabs
 - `q` or `:q`: quit
 
 ## Data files
 
-App data is stored in `~/.config/lifeops`:
+App data is stored in `~/.config/lifeops/lifeops.json`.
 
-- `todos.txt`
-- `notes.txt`
-- `journal-YYYY-MM-DD.txt`
+Legacy text files (`todos.txt`, `notes.txt`, `journal-*.txt`) are automatically migrated on first run and renamed with `.migrated`.
 
 ## Notes
 

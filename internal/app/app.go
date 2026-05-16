@@ -1,15 +1,12 @@
 package app
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -17,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sherqo/lifeops/internal/store"
 )
 
 var tabs = []string{"Dashboard", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU"}
@@ -30,13 +28,15 @@ type model struct {
 	inputMode bool
 	input     textinput.Model
 	dataDir   string
+	db        *store.DB
 
 	dashboard []string
 	weather   []string
 	todos     []string
 	journal   []string
 	notes     []string
-	github    []string
+	githubPRs []ghPR
+	ghCursor  int
 	asu       []string
 }
 
@@ -46,13 +46,27 @@ type loadedMsg struct {
 	lines []string
 }
 
+type githubLoadedMsg struct {
+	prs []ghPR
+}
+
+type ghPR struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Repo   struct {
+		NameWithOwner string `json:"nameWithOwner"`
+	} `json:"repository"`
+}
+
 func Run() error {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return err
 	}
-	dataDir := filepath.Join(dir, "lifeops")
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+	dataDir := dir + "/lifeops"
+	db, err := store.Load(dataDir)
+	if err != nil {
 		return err
 	}
 
@@ -61,27 +75,27 @@ func Run() error {
 	in.CharLimit = 500
 	in.Prompt = "> "
 
-	m := model{dataDir: dataDir, input: in, status: "q quit | h/l tabs | r refresh | a add"}
+	m := model{dataDir: dataDir, db: db, input: in, status: "q quit | h/l tabs | r refresh | a add"}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), loadAll(m.dataDir))
+	return tea.Batch(tick(), loadAll(m.db))
 }
 
 func tick() tea.Cmd {
 	return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} })
 }
 
-func loadAll(dataDir string) tea.Cmd {
+func loadAll(db *store.DB) tea.Cmd {
 	return tea.Batch(
 		loadDashboard(),
 		loadWeather(),
-		loadTodos(dataDir),
-		loadJournal(dataDir),
-		loadNotes(dataDir),
+		loadTodos(db),
+		loadJournal(db),
+		loadNotes(db),
 		loadGitHub(),
 		loadASU(),
 	)
@@ -108,21 +122,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "empty input"
 					return m, nil
 				}
-				if tabs[m.tab] == "Todos" {
-					_ = appendLine(filepath.Join(m.dataDir, "todos.txt"), text)
+				switch tabs[m.tab] {
+				case "Todos":
+					store.AddTodo(m.db, text)
+					_ = store.Save(m.dataDir, m.db)
 					m.status = "todo added"
-					return m, loadTodos(m.dataDir)
-				}
-				if tabs[m.tab] == "Notes" {
-					_ = appendLine(filepath.Join(m.dataDir, "notes.txt"), text)
+					return m, loadTodos(m.db)
+				case "Notes":
+					store.AddNote(m.db, text)
+					_ = store.Save(m.dataDir, m.db)
 					m.status = "note added"
-					return m, loadNotes(m.dataDir)
-				}
-				if tabs[m.tab] == "Journal" {
-					path := filepath.Join(m.dataDir, "journal-"+time.Now().Format("2006-01-02")+".txt")
-					_ = appendLine(path, time.Now().Format("15:04")+" - "+text)
+					return m, loadNotes(m.db)
+				case "Journal":
+					store.AddJournalEntry(m.db, text)
+					_ = store.Save(m.dataDir, m.db)
 					m.status = "journal entry added"
-					return m, loadJournal(m.dataDir)
+					return m, loadJournal(m.db)
 				}
 			}
 		}
@@ -152,19 +167,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tab++
 			}
 		case "1", "2", "3", "4", "5", "6", "7":
-			m.tab = int(t.String()[0]-'1')
+			m.tab = int(t.String()[0] - '1')
 		case "r":
 			m.status = "refreshing"
-			return m, loadAll(m.dataDir)
+			return m, loadAll(m.db)
 		case "a":
 			if tabs[m.tab] == "Todos" || tabs[m.tab] == "Notes" || tabs[m.tab] == "Journal" {
 				m.inputMode = true
 				m.input.Focus()
 				m.status = "enter text (esc to cancel)"
 			}
+		case "j":
+			if tabs[m.tab] == "GitHub" && m.ghCursor < len(m.githubPRs)-1 {
+				m.ghCursor++
+				m.status = "selected PR moved down"
+			}
+		case "k":
+			if tabs[m.tab] == "GitHub" && m.ghCursor > 0 {
+				m.ghCursor--
+				m.status = "selected PR moved up"
+			}
+		case "o", "enter":
+			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
+				pr := m.githubPRs[m.ghCursor]
+				go exec.Command("gh", "pr", "view", fmt.Sprintf("%d", pr.Number), "--repo", pr.Repo.NameWithOwner, "--web").Run()
+				m.status = "opened PR in browser"
+			}
+		case "t":
+			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
+				pr := m.githubPRs[m.ghCursor]
+				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
+				_ = store.Save(m.dataDir, m.db)
+				m.status = "todo created from PR"
+				return m, loadTodos(m.db)
+			}
 		}
 	case refreshMsg:
 		return m, tea.Batch(loadDashboard(), loadWeather(), loadGitHub(), loadASU(), tick())
+	case githubLoadedMsg:
+		m.githubPRs = t.prs
+		if m.ghCursor >= len(m.githubPRs) {
+			m.ghCursor = max(0, len(m.githubPRs)-1)
+		}
+		m.status = "updated GitHub"
 	case loadedMsg:
 		switch t.tab {
 		case "Dashboard":
@@ -177,8 +222,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.journal = t.lines
 		case "Notes":
 			m.notes = t.lines
-		case "GitHub":
-			m.github = t.lines
 		case "ASU":
 			m.asu = t.lines
 		}
@@ -208,6 +251,9 @@ func (m model) View() string {
 			"h/l ........ switch tabs",
 			"1..7 ....... jump to tab",
 			"a .......... add item in Todos/Journal/Notes",
+			"j/k ........ move GitHub PR selection",
+			"o or Enter . open selected GitHub PR",
+			"t .......... create todo from selected PR",
 			"r .......... refresh system/network tabs",
 			"? .......... toggle help",
 			"q or :q .... quit",
@@ -239,10 +285,25 @@ func currentTab(m model) []string {
 	case "Notes":
 		return m.notes
 	case "GitHub":
-		return m.github
+		return renderGitHub(m.githubPRs, m.ghCursor)
 	default:
 		return m.asu
 	}
+}
+
+func renderGitHub(prs []ghPR, cursor int) []string {
+	lines := []string{"GitHub snapshot", "", "Pull requests:", "Use j/k to select, o/Enter to open, t to add todo", ""}
+	if len(prs) == 0 {
+		return append(lines, "No open pull requests or gh not authenticated")
+	}
+	for i, pr := range prs {
+		prefix := "  "
+		if i == cursor {
+			prefix = "> "
+		}
+		lines = append(lines, fmt.Sprintf("%s#%d %s (%s)", prefix, pr.Number, pr.Title, pr.Repo.NameWithOwner))
+	}
+	return lines
 }
 
 func loadDashboard() tea.Cmd {
@@ -290,27 +351,29 @@ func loadWeather() tea.Cmd {
 	}
 }
 
-func loadTodos(dir string) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: listFileOrHint(filepath.Join(dir, "todos.txt"), "Press 'a' to add todo")} }
+func loadTodos(db *store.DB) tea.Cmd {
+	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: store.TodoLines(db)} }
 }
-func loadNotes(dir string) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Notes", lines: listFileOrHint(filepath.Join(dir, "notes.txt"), "Press 'a' to add note")} }
+
+func loadNotes(db *store.DB) tea.Cmd {
+	return func() tea.Msg { return loadedMsg{tab: "Notes", lines: store.NoteLines(db)} }
 }
-func loadJournal(dir string) tea.Cmd {
-	return func() tea.Msg {
-		path := filepath.Join(dir, "journal-"+time.Now().Format("2006-01-02")+".txt")
-		return loadedMsg{tab: "Journal", lines: listFileOrHint(path, "Press 'a' to add journal entry")}
-	}
+
+func loadJournal(db *store.DB) tea.Cmd {
+	return func() tea.Msg { return loadedMsg{tab: "Journal", lines: store.JournalLines(db)} }
 }
 
 func loadGitHub() tea.Cmd {
 	return func() tea.Msg {
 		if _, err := exec.LookPath("gh"); err != nil {
-			return loadedMsg{tab: "GitHub", lines: []string{"Install GitHub CLI to enable this tab"}}
+			return githubLoadedMsg{}
 		}
-		auth := run("gh", "auth", "status")
-		prs := run("gh", "pr", "list", "-L", "5")
-		return loadedMsg{tab: "GitHub", lines: []string{"GitHub snapshot", "", "Auth:", auth, "", "Open PRs:", prs}}
+		raw := run("gh", "pr", "list", "-L", "10", "--json", "number,title,url,repository")
+		var prs []ghPR
+		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
+			return githubLoadedMsg{}
+		}
+		return githubLoadedMsg{prs: prs}
 	}
 }
 
@@ -336,42 +399,13 @@ func asuBinaryPath() string {
 func run(cmd string, args ...string) string {
 	out, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
-		return strings.TrimSpace(string(out)) + "\n(err: " + err.Error() + ")"
+		return strings.TrimSpace(string(out))
 	}
 	text := strings.TrimSpace(string(out))
 	if len(text) > 600 {
 		text = text[:600] + "..."
 	}
 	return text
-}
-
-func listFileOrHint(path, hint string) []string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return []string{hint}
-	}
-	var out []string
-	s := bufio.NewScanner(bytes.NewReader(b))
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line != "" {
-			out = append(out, "- "+line)
-		}
-	}
-	if len(out) == 0 {
-		return []string{hint}
-	}
-	return out
-}
-
-func appendLine(path, line string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintln(f, line)
-	return err
 }
 
 func parseMem() ([2]float64, error) {
