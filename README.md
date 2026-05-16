@@ -37,4 +37,4 @@ App data is stored in `~/.config/lifeops`:
 ## Notes
 
 - GitHub tab requires authenticated `gh` CLI.
-- ASU tab expects binary at `/home/sherqo/ac/go/eng-asu/asu`.
+- ASU tab defaults to `/home/sherqo/ac/go/eng-asu/asu` and can be overridden with `LIFEOPS_ASU_BIN`.

@@ -316,7 +316,7 @@ func loadGitHub() tea.Cmd {
 
 func loadASU() tea.Cmd {
 	return func() tea.Msg {
-		bin := "/home/sherqo/ac/go/eng-asu/asu"
+		bin := asuBinaryPath()
 		if _, err := os.Stat(bin); err != nil {
 			return loadedMsg{tab: "ASU", lines: []string{"ASU binary not found", "Expected at " + bin}}
 		}
@@ -324,6 +324,13 @@ func loadASU() tea.Cmd {
 		courses := run(bin, "courses", "--json")
 		return loadedMsg{tab: "ASU", lines: []string{"ASU data", "", "Whoami:", who, "", "Courses:", courses}}
 	}
+}
+
+func asuBinaryPath() string {
+	if v := strings.TrimSpace(os.Getenv("LIFEOPS_ASU_BIN")); v != "" {
+		return v
+	}
+	return "/home/sherqo/ac/go/eng-asu/asu"
 }
 
 func run(cmd string, args ...string) string {
