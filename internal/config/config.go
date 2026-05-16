@@ -31,6 +31,15 @@ func Load(dataDir string) (*Config, error) {
 	return &cfg, nil
 }
 
+func Save(dataDir string, cfg *Config) error {
+	path := filepath.Join(dataDir, fileName)
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}
+
 func ResolvePaths(dataDir string, cfg *Config) (notesDir string, journalDir string) {
 	notesDir = cfg.NotesDir
 	journalDir = cfg.JournalDir

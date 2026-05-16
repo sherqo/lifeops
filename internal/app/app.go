@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -30,29 +31,31 @@ const (
 )
 
 type model struct {
-	tab         int
-	width       int
-	status      string
-	helpMode    bool
-	mode        mode
-	input       textinput.Model
-	command     textinput.Model
-	dataDir     string
-	notesDir    string
-	journalDir  string
-	db          *store.DB
-	todoCursor  int
-	todoFilter  store.TodoFilter
-	ghCursor    int
-	githubPRs   []ghPR
-	githubErr   string
-	dashboard   []string
-	calendar    []string
-	calMonth    time.Time
-	calendarICS []string
-	weather     []string
-	asu         []string
-	habitCursor int
+	tab           int
+	width         int
+	status        string
+	helpMode      bool
+	mode          mode
+	input         textinput.Model
+	command       textinput.Model
+	dataDir       string
+	notesDir      string
+	journalDir    string
+	cfg           *config.Config
+	db            *store.DB
+	todoCursor    int
+	todoFilter    store.TodoFilter
+	ghCursor      int
+	githubPRs     []ghPR
+	githubErr     string
+	dashboard     []string
+	calendar      []string
+	calMonth      time.Time
+	calendarICS   []string
+	weather       []string
+	asu           []string
+	habitCursor   int
+	journalCursor int
 }
 
 type refreshMsg struct{}
@@ -102,10 +105,10 @@ func Run() error {
 	in.Placeholder = "Type and press Enter"
 	in.Prompt = "> "
 	cmd := textinput.New()
-	cmd.Placeholder = "q | refresh | tab <name>"
+	cmd.Placeholder = "q | refresh | tab <name> | set-journal <path>"
 	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
@@ -228,7 +231,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if tabs[m.tab] == "Journal" {
 				m.status = "opening journal in editor"
-				return m, openInEditorCmd(journalTodayPath(m.journalDir))
+				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
 			}
 			if tabs[m.tab] == "Notes" {
 				m.status = "opening notes in editor"
@@ -250,6 +253,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "todo filter: " + store.FilterLabel(m.todoFilter)
 			}
 		case "o", "enter":
+			if tabs[m.tab] == "Journal" {
+				m.status = "opening journal in editor"
+				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
+			}
 			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				if pr.URL != "" {
@@ -317,6 +324,35 @@ func runCommand(m *model, c string) tea.Cmd {
 				}
 			}
 		}
+	case "set-journal":
+		if len(parts) > 1 {
+			path := strings.TrimSpace(strings.Join(parts[1:], " "))
+			if path != "" {
+				m.journalDir = path
+				if m.cfg != nil {
+					m.cfg.JournalDir = path
+					_ = config.Save(m.dataDir, m.cfg)
+				}
+				_ = content.EnsureDirs(m.notesDir, m.journalDir)
+				m.journalCursor = 0
+				m.status = "journal path updated"
+			}
+		}
+	case "set-notes":
+		if len(parts) > 1 {
+			path := strings.TrimSpace(strings.Join(parts[1:], " "))
+			if path != "" {
+				m.notesDir = path
+				if m.cfg != nil {
+					m.cfg.NotesDir = path
+					_ = config.Save(m.dataDir, m.cfg)
+				}
+				_ = content.EnsureDirs(m.notesDir, m.journalDir)
+				m.status = "notes path updated"
+			}
+		}
+	case "show-paths":
+		m.status = "journal: " + m.journalDir
 	}
 	return nil
 }
@@ -334,6 +370,12 @@ func moveDown(m model) model {
 	if tabs[m.tab] == "Habits" && m.habitCursor < len(m.db.Habits)-1 {
 		m.habitCursor++
 	}
+	if tabs[m.tab] == "Journal" {
+		n := len(journalFilesForDisplay(m.journalDir))
+		if m.journalCursor < n-1 {
+			m.journalCursor++
+		}
+	}
 	return m
 }
 
@@ -346,6 +388,9 @@ func moveUp(m model) model {
 	}
 	if tabs[m.tab] == "Habits" && m.habitCursor > 0 {
 		m.habitCursor--
+	}
+	if tabs[m.tab] == "Journal" && m.journalCursor > 0 {
+		m.journalCursor--
 	}
 	return m
 }
@@ -385,8 +430,7 @@ func (m model) currentTab() []string {
 	case "Todos":
 		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
-		lines := []string{"Journal", "a add quick entry, e open full file", "", "Today:"}
-		return append(lines, content.JournalLines(m.journalDir)...)
+		return renderJournal(m.journalDir, m.journalCursor)
 	case "Notes":
 		lines := []string{"Notes", "a add quick note, e open inbox file", "", "Recent:"}
 		return append(lines, content.NoteLines(m.notesDir)...)
@@ -397,6 +441,53 @@ func (m model) currentTab() []string {
 	default:
 		return renderHabits(m.db.Habits, m.habitCursor)
 	}
+}
+
+func renderJournal(journalDir string, cursor int) []string {
+	files := journalFilesForDisplay(journalDir)
+	lines := []string{"Journal", "j/k select file, Enter/e open in nvim/editor, a quick add", "", "Path: " + journalDir, ""}
+	if len(files) == 0 {
+		return append(lines, "No journal files found")
+	}
+	for i, path := range files {
+		name := filepath.Base(path)
+		p := "  "
+		if i == cursor {
+			p = "> "
+		}
+		lines = append(lines, p+name)
+	}
+	return lines
+}
+
+func journalFilesForDisplay(journalDir string) []string {
+	files := content.RecentJournalFiles(journalDir)
+	today := journalTodayPath(journalDir)
+	hasToday := false
+	for _, f := range files {
+		if f == today {
+			hasToday = true
+			break
+		}
+	}
+	if !hasToday {
+		files = append([]string{today}, files...)
+	}
+	return files
+}
+
+func selectedJournalPath(journalDir string, cursor int) string {
+	files := journalFilesForDisplay(journalDir)
+	if len(files) == 0 {
+		return journalTodayPath(journalDir)
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(files) {
+		cursor = len(files) - 1
+	}
+	return files[cursor]
 }
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {

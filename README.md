@@ -23,11 +23,12 @@ go run ./
 ## Keys
 
 - `h` / `l`: previous/next tab
-- `:`: command palette (`q`, `refresh`, `tab <name>`)
+- `:`: command palette (`q`, `refresh`, `tab <name>`, `set-journal <path>`, `set-notes <path>`, `show-paths`)
 - `n` / `p`: next/previous month in Calendar tab
 - `T`: jump Calendar tab to current month
 - `a`: add item (Todos, Journal, Notes)
-- `e`: open Journal/Notes markdown in `$EDITOR` (falls back to `nvim`/`vi`)
+- `e`: open selected Journal file or Notes inbox in `$EDITOR` (falls back to `nvim`/`vi`)
+- `Enter` on Journal: open selected `.md` journal file
 - `?`: toggle keymap help
 - `j` / `k`: move selection in lists (Todos, GitHub, Habits)
 - `x`: toggle selected todo complete/incomplete
@@ -45,6 +46,8 @@ Todos and habits are stored in `~/.config/lifeops/lifeops.json`.
 Notes and journal are markdown files, with configurable locations:
 - `LIFEOPS_NOTES_DIR` (default: `~/.config/lifeops/notes`)
 - `LIFEOPS_JOURNAL_DIR` (default: `~/.config/lifeops/journal`)
+
+Journal tab is file-oriented: it lists recent `*.md` entries from your configured journal path and opens them directly in your editor.
 
 You can also set paths in `~/.config/lifeops/config.json` (see `config.example.json`). Env vars take precedence.
 
