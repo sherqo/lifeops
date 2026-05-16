@@ -23,9 +23,12 @@ func AddNote(notesDir, text string) error {
 }
 
 func AddJournalEntry(journalDir, text string) error {
-	name := time.Now().Format("2006-01-02") + ".md"
+	// Create a new file with timestamp in filename
+	name := time.Now().Format("2006-01-02_1504") + ".md"
 	path := filepath.Join(journalDir, name)
-	return appendLine(path, "- ["+time.Now().Format("15:04")+"] "+text)
+	// Also include timestamp inside the file content
+	content := "# " + time.Now().Format("2006-01-02 15:04") + "\n\n" + text + "\n"
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func NoteLines(notesDir string) []string {
@@ -76,7 +79,7 @@ func RecentJournalFiles(journalDir string) []string {
 	if journalDir == "" {
 		return []string{}
 	}
-
+	
 	info, err := os.Stat(journalDir)
 	if err != nil || !info.IsDir() {
 		return []string{}
@@ -93,8 +96,14 @@ func RecentJournalFiles(journalDir string) []string {
 			return nil
 		}
 		name := strings.ToLower(d.Name())
+		// Accept both old format (2026-05-16.md) and new format (2026-05-16_1530.md)
 		if !strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".markdown") {
 			return nil
+		}
+		// Skip the old daily journal file - it's now just historical
+		if strings.HasSuffix(name, ".md") && !strings.Contains(name, "_") {
+			// Could still include if you want, but let's focus on new entries
+			// return nil 
 		}
 		st, statErr := d.Info()
 		if statErr != nil {
@@ -103,16 +112,6 @@ func RecentJournalFiles(journalDir string) []string {
 		files = append(files, fileInfo{path: path, modTime: st.ModTime()})
 		return nil
 	})
-
-	if len(files) == 0 {
-		matches, _ := filepath.Glob(filepath.Join(journalDir, "*.md"))
-		for _, match := range matches {
-			st, err := os.Stat(match)
-			if err == nil {
-				files = append(files, fileInfo{path: match, modTime: st.ModTime()})
-			}
-		}
-	}
 
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].modTime.After(files[j].modTime)
