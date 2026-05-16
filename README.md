@@ -42,6 +42,8 @@ Notes and journal are markdown files, with configurable locations:
 - `LIFEOPS_NOTES_DIR` (default: `~/.config/lifeops/notes`)
 - `LIFEOPS_JOURNAL_DIR` (default: `~/.config/lifeops/journal`)
 
+You can also set paths in `~/.config/lifeops/config.json` (see `config.example.json`). Env vars take precedence.
+
 ## Notes
 
 - GitHub tab requires authenticated `gh` CLI.
