@@ -487,6 +487,8 @@ func (m model) View() string {
 		body += "\n\n" + m.command.View()
 	}
 	
+	// Controls at bottom
+	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
 	status := statusBar.Render(" " + m.status)
 	
 	return strings.Join([]string{
@@ -494,6 +496,7 @@ func (m model) View() string {
 		divider.Render(strings.Repeat("─", max(20, m.width-2))),
 		body,
 		"",
+		controls,
 		status,
 	}, "\n")
 }
