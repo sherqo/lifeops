@@ -468,9 +468,9 @@ func (m model) View() string {
 	var head []string
 	for i, t := range tabs {
 		if i == m.tab {
-			head = append(head, tabActive.Render("["+t+"]"))
+			head = append(head, "["+t+"]")
 		} else {
-			head = append(head, tabInactive.Render(t))
+			head = append(head, t)
 		}
 	}
 	tabBar := strings.Join(head, "  ")
