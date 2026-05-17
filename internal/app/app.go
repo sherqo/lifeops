@@ -514,7 +514,22 @@ func (m model) View() string {
 	// Divider line with color
 	dividerStr := divider.Render(strings.Repeat("─", max(20, m.width-2)))
 
-	// Controls at bottom with color
+	// Tab-specific hints
+	tabHints := map[string]string{
+		"Calendar": "n/p: month | T: today",
+		"Todos":    "x: toggle | f: filter",
+		"Journal":  "a: add | e: edit",
+		"Notes":    "a: add | e: edit",
+		"GitHub":   "o: open URL | t: todo",
+		"Habits":   "space: toggle",
+		"ASU":      "o: open",
+	}
+	hint := ""
+	if h, ok := tabHints[tabs[m.tab]]; ok {
+		hint = subtext.Render(h) + "\n"
+	}
+
+	// General controls at bottom
 	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
 	status := statusBar.Render(" " + m.status)
 
@@ -522,7 +537,7 @@ func (m model) View() string {
 	padding := ""
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
-		need := m.height - lines - 4
+		need := m.height - lines - 5 // +1 for hint
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
@@ -530,7 +545,7 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	view := tabBar + "\n" + dividerStr + "\n" + body + "\n" + padding + controls + "\n" + status
+	view := tabBar + "\n" + dividerStr + "\n" + body + "\n" + padding + hint + controls + "\n" + status
 	return view
 }
 
