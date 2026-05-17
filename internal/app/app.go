@@ -496,14 +496,6 @@ func (m model) View() string {
 
 	// Build body content - plain text
 	body := strings.Join(m.currentTab(), "\n")
-	if m.helpMode {
-		body = "?: help | : command | a add | h/l tabs | j/k move\n" +
-			"Calendar: n/p month, T today\n" +
-			"Todos: x toggle, f filter\n" +
-			"Journal/Notes: e open in editor\n" +
-			"GitHub: o show URL, t todo\n" +
-			"Habits: space toggle"
-	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
 	}
