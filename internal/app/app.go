@@ -572,10 +572,8 @@ func renderJournal(journalDir string, cursor int) []string {
 		lines = append(lines, errorText.Render("ERROR: Journal directory does not exist: "+journalDir))
 		lines = append(lines, subtext.Render("Use :set-journal <path> to set a valid path"))
 	} else {
-		lines = append(lines, subtext.Render("Path: "+journalDir+" | Files: "+fmt.Sprintf("%d", len(files))))
+		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
 	}
-
-	lines = append(lines, subtext.Render("j/k select, Enter/e open, a create new"), "")
 
 	if len(files) == 0 {
 		return append(lines, subtext.Render("No journal files - press 'a' to create one"))
@@ -631,10 +629,8 @@ func renderNotes(notesDir string, cursor int) []string {
 		lines = append(lines, errorText.Render("ERROR: Notes directory does not exist: "+notesDir))
 		lines = append(lines, subtext.Render("Use :set-notes <path> to set a valid path"))
 	} else {
-		lines = append(lines, subtext.Render("Path: "+notesDir+" | Files: "+fmt.Sprintf("%d", len(files))))
+		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
 	}
-
-	lines = append(lines, subtext.Render("j/k select, Enter/e open, a create new"), "")
 
 	if len(files) == 0 {
 		return append(lines, subtext.Render("No notes - press 'a' to create one"))
@@ -677,7 +673,7 @@ func selectedNotesPath(notesDir string, cursor int) string {
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
 	idx := store.VisibleTodoIndices(db, filter)
-	lines := []string{subtext.Render("filter: "+store.FilterLabel(filter)+" | j/k move, x toggle, f cycle")}
+	lines := []string{subtext.Render("filter: " + store.FilterLabel(filter))}
 	if len(idx) == 0 {
 		return append(lines, subtext.Render("No todos"))
 	}
@@ -700,7 +696,7 @@ func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
 }
 
 func renderHabits(h []store.Habit, cursor int) []string {
-	lines := []string{subtext.Render("j/k move, space toggle")}
+	var lines []string
 	for i, x := range h {
 		mark := "[ ]"
 		var itemStyle lipgloss.Style
@@ -719,7 +715,7 @@ func renderHabits(h []store.Habit, cursor int) []string {
 }
 
 func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
-	lines := []string{subtext.Render("j/k select, o show URL, t make todo")}
+	var lines []string
 	if errMsg != "" {
 		return append(lines, errorText.Render("Error: "+errMsg))
 	}
@@ -879,8 +875,6 @@ func buildFullDashboard(stats dashboardStatsMsg) []string {
 func loadCalendar(month time.Time, feeds []string) tea.Cmd {
 	return func() tea.Msg {
 		lines := []string{
-			subtext.Render("n next month, p previous month, T current month"),
-			"",
 			header.Render(month.Format("January 2006")),
 		}
 		lines = append(lines, renderMonth(month)...)
