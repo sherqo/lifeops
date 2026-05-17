@@ -356,7 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case journalRefreshMsg:
 		m.status = "journal refreshed"
 	case dashboardStatsMsg:
-		m.dashboard = renderDashboardWithStats(m.dashboard, t)
+		m.dashboard = buildFullDashboard(t)
 		m.status = "dashboard updated"
 	}
 	return m, nil
@@ -761,7 +761,7 @@ func loadDashboardStats(db *store.DB) tea.Cmd {
 	}
 }
 
-func renderDashboardWithStats(current []string, stats dashboardStatsMsg) []string {
+func buildFullDashboard(stats dashboardStatsMsg) []string {
 	var lines []string
 	now := time.Now()
 	host, _ := os.Hostname()
