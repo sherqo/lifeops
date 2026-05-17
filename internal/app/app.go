@@ -475,6 +475,8 @@ func (m model) View() string {
 			head = append(head, tabInactive.Render(t))
 		}
 	}
+	log.Printf("DEBUG tabs: head=%v", head)
+	log.Printf("DEBUG tabs: tabBar=%s", strings.Join(head, "  "))
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
 		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
