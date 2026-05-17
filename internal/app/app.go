@@ -20,6 +20,21 @@ import (
 	"github.com/sherqo/lifeops/internal/store"
 )
 
+// Color styles
+var (
+	tabActive    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	tabInactive  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	selected     = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	normalItem   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	header       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75"))
+	subtext      = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	statusBar    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("235"))
+	divider      = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	doneItem     = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Strikethrough(true)
+	errorText    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	successText  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
+)
+
 var tabs = []string{"Dashboard", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
 
 type mode int
@@ -416,19 +431,22 @@ func moveUp(m model) model {
 }
 
 func (m model) View() string {
-	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	inactive := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	var head []string
 	for i, t := range tabs {
 		if i == m.tab {
-			head = append(head, active.Render("["+t+"]"))
+			head = append(head, tabActive.Render("["+t+"]"))
 		} else {
-			head = append(head, inactive.Render(t))
+			head = append(head, tabInactive.Render(t))
 		}
 	}
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
-		body = "?: help | : command | a add | h/l tabs | j/k move\nCalendar: n/p month, T today\nTodos: x toggle, f filter\nJournal/Notes: e open in editor\nGitHub: o open, t todo\nHabits: space toggle"
+		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
+			subtext.Render("Calendar: n/p month, T today") + "\n" +
+			subtext.Render("Todos: x toggle, f filter") + "\n" +
+			subtext.Render("Journal/Notes: e open in editor") + "\n" +
+			subtext.Render("GitHub: o show URL, t todo") + "\n" +
+			subtext.Render("Habits: space toggle")
 	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
@@ -436,7 +454,16 @@ func (m model) View() string {
 	if m.mode == modeCommand {
 		body += "\n\n" + m.command.View()
 	}
-	return strings.Join([]string{strings.Join(head, "  "), strings.Repeat("-", max(20, m.width-2)), body, "", "Status: " + m.status}, "\n")
+	
+	status := statusBar.Render(" " + m.status)
+	
+	return strings.Join([]string{
+		strings.Join(head, "  "),
+		divider.Render(strings.Repeat("─", max(20, m.width-2))),
+		body,
+		"",
+		status,
+	}, "\n")
 }
 
 func (m model) currentTab() []string {
@@ -466,26 +493,28 @@ func renderJournal(journalDir string, cursor int) []string {
 	files := journalFilesForDisplay(journalDir)
 	lines := []string{}
 
-	// Debug info
 	if _, err := os.Stat(journalDir); os.IsNotExist(err) {
-		lines = append(lines, "ERROR: Journal directory does not exist: "+journalDir)
-		lines = append(lines, "Use :set-journal <path> to set a valid path")
+		lines = append(lines, errorText.Render("ERROR: Journal directory does not exist: "+journalDir))
+		lines = append(lines, subtext.Render("Use :set-journal <path> to set a valid path"))
 	} else {
-		lines = append(lines, "Journal - Path: "+journalDir+" - Files: "+fmt.Sprintf("%d", len(files)))
+		lines = append(lines, header.Render("Journal"))
+		lines = append(lines, subtext.Render("Path: "+journalDir+" | Files: "+fmt.Sprintf("%d", len(files))))
 	}
 
-lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a quick add", "")
+	lines = append(lines, subtext.Render("j/k select, Enter/e open, a create new"), "")
 
 	if len(files) == 0 {
-		return append(lines, "No journal files found - add .md files to your journal directory")
+		return append(lines, subtext.Render("No journal files - press 'a' to create one"))
 	}
 	for i, path := range files {
 		name := filepath.Base(path)
-		p := "  "
+		var itemStyle lipgloss.Style
 		if i == cursor {
-			p = "> "
+			itemStyle = selected.Bold(true)
+		} else {
+			itemStyle = normalItem
 		}
-		lines = append(lines, p+name)
+		lines = append(lines, itemStyle.Render(name))
 	}
 	return lines
 }
@@ -525,24 +554,27 @@ func renderNotes(notesDir string, cursor int) []string {
 	lines := []string{}
 
 	if _, err := os.Stat(notesDir); os.IsNotExist(err) {
-		lines = append(lines, "ERROR: Notes directory does not exist: "+notesDir)
-		lines = append(lines, "Use :set-notes <path> to set a valid path")
+		lines = append(lines, errorText.Render("ERROR: Notes directory does not exist: "+notesDir))
+		lines = append(lines, subtext.Render("Use :set-notes <path> to set a valid path"))
 	} else {
-		lines = append(lines, "Notes - Path: "+notesDir+" - Files: "+fmt.Sprintf("%d", len(files)))
+		lines = append(lines, header.Render("Notes"))
+		lines = append(lines, subtext.Render("Path: "+notesDir+" | Files: "+fmt.Sprintf("%d", len(files))))
 	}
 
-	lines = append(lines, "j/k select file, Enter/e open in nvim/editor, a create new", "")
+	lines = append(lines, subtext.Render("j/k select, Enter/e open, a create new"), "")
 
 	if len(files) == 0 {
-		return append(lines, "No notes found - press 'a' to create one")
+		return append(lines, subtext.Render("No notes - press 'a' to create one"))
 	}
 	for i, path := range files {
 		name := filepath.Base(path)
-		p := "  "
+		var itemStyle lipgloss.Style
 		if i == cursor {
-			p = "> "
+			itemStyle = selected.Bold(true)
+		} else {
+			itemStyle = normalItem
 		}
-		lines = append(lines, p+name)
+		lines = append(lines, itemStyle.Render(name))
 	}
 	return lines
 }
@@ -572,53 +604,63 @@ func selectedNotesPath(notesDir string, cursor int) string {
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
 	idx := store.VisibleTodoIndices(db, filter)
-	lines := []string{"Todos (filter: " + store.FilterLabel(filter) + ")", "j/k move, x toggle, f cycle filter", ""}
+	lines := []string{header.Render("Todos"), subtext.Render("filter: "+store.FilterLabel(filter)+" | j/k move, x toggle, f cycle"), ""}
 	if len(idx) == 0 {
-		return append(lines, "No todos")
+		return append(lines, subtext.Render("No todos"))
 	}
 	for i, j := range idx {
 		t := db.Todos[j]
-		mark, p := "[ ]", "  "
+		mark := "[ ]"
+		var itemStyle lipgloss.Style
 		if t.Completed {
 			mark = "[x]"
+			itemStyle = doneItem
+		} else {
+			itemStyle = normalItem
 		}
 		if i == cursor {
-			p = "> "
+			itemStyle = selected.Bold(true)
 		}
-		lines = append(lines, fmt.Sprintf("%s%s %s", p, mark, t.Text))
+		lines = append(lines, itemStyle.Render(mark+" "+t.Text))
 	}
 	return lines
 }
 
 func renderHabits(h []store.Habit, cursor int) []string {
-	lines := []string{"Habits", "j/k move, space toggle", ""}
+	lines := []string{header.Render("Habits"), subtext.Render("j/k move, space toggle"), ""}
 	for i, x := range h {
-		m, p := "[ ]", "  "
+		mark := "[ ]"
+		var itemStyle lipgloss.Style
 		if x.Completed {
-			m = "[x]"
+			mark = "[x]"
+			itemStyle = doneItem
+		} else {
+			itemStyle = normalItem
 		}
 		if i == cursor {
-			p = "> "
+			itemStyle = selected.Bold(true)
 		}
-		lines = append(lines, fmt.Sprintf("%s%s %s", p, m, x.Name))
+		lines = append(lines, itemStyle.Render(mark+" "+x.Name))
 	}
 	return lines
 }
 
 func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
-	lines := []string{"GitHub", "j/k select, o open, t make todo", ""}
+	lines := []string{header.Render("GitHub"), subtext.Render("j/k select, o show URL, t make todo"), ""}
 	if errMsg != "" {
-		return append(lines, "Error: "+errMsg)
+		return append(lines, errorText.Render("Error: "+errMsg))
 	}
 	if len(prs) == 0 {
-		return append(lines, "No open pull requests")
+		return append(lines, subtext.Render("No open pull requests"))
 	}
 	for i, pr := range prs {
-		p := "  "
+		var itemStyle lipgloss.Style
 		if i == cursor {
-			p = "> "
+			itemStyle = selected.Bold(true)
+		} else {
+			itemStyle = normalItem
 		}
-		lines = append(lines, fmt.Sprintf("%s#%d %s (%s)", p, pr.Number, pr.Title, pr.Repo.NameWithOwner))
+		lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s (%s)", pr.Number, pr.Title, pr.Repo.NameWithOwner)))
 	}
 	return lines
 }
