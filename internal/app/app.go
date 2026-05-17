@@ -35,7 +35,7 @@ var (
 	successText  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 )
 
-var tabs = []string{"Dashboard", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
+var tabs = []string{"Home", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
 
 type mode int
 
