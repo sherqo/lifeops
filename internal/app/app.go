@@ -470,9 +470,10 @@ func (m model) View() string {
 		if i == m.tab {
 			head = append(head, tabActive.Render("["+t+"]"))
 		} else {
-			head = append(head, tabInactive.Render(t))
+			head = append(head, tabInactive.Render(" "+t+" "))
 		}
 	}
+	tabBar := strings.Join(head, "")
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
 		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
@@ -503,7 +504,7 @@ func (m model) View() string {
 	}
 	
 	return strings.Join([]string{
-		strings.Join(head, "  "),
+		tabBar,
 		divider.Render(strings.Repeat("─", max(20, m.width-2))),
 		body,
 		padding,
