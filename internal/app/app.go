@@ -532,7 +532,6 @@ func renderJournal(journalDir string, cursor int) []string {
 		lines = append(lines, errorText.Render("ERROR: Journal directory does not exist: "+journalDir))
 		lines = append(lines, subtext.Render("Use :set-journal <path> to set a valid path"))
 	} else {
-		lines = append(lines, header.Render("Journal"))
 		lines = append(lines, subtext.Render("Path: "+journalDir+" | Files: "+fmt.Sprintf("%d", len(files))))
 	}
 
@@ -592,7 +591,6 @@ func renderNotes(notesDir string, cursor int) []string {
 		lines = append(lines, errorText.Render("ERROR: Notes directory does not exist: "+notesDir))
 		lines = append(lines, subtext.Render("Use :set-notes <path> to set a valid path"))
 	} else {
-		lines = append(lines, header.Render("Notes"))
 		lines = append(lines, subtext.Render("Path: "+notesDir+" | Files: "+fmt.Sprintf("%d", len(files))))
 	}
 
@@ -639,7 +637,7 @@ func selectedNotesPath(notesDir string, cursor int) string {
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
 	idx := store.VisibleTodoIndices(db, filter)
-	lines := []string{header.Render("Todos"), subtext.Render("filter: "+store.FilterLabel(filter)+" | j/k move, x toggle, f cycle"), ""}
+	lines := []string{subtext.Render("filter: "+store.FilterLabel(filter)+" | j/k move, x toggle, f cycle")}
 	if len(idx) == 0 {
 		return append(lines, subtext.Render("No todos"))
 	}
@@ -662,7 +660,7 @@ func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
 }
 
 func renderHabits(h []store.Habit, cursor int) []string {
-	lines := []string{header.Render("Habits"), subtext.Render("j/k move, space toggle"), ""}
+	lines := []string{subtext.Render("j/k move, space toggle")}
 	for i, x := range h {
 		mark := "[ ]"
 		var itemStyle lipgloss.Style
@@ -681,7 +679,7 @@ func renderHabits(h []store.Habit, cursor int) []string {
 }
 
 func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
-	lines := []string{header.Render("GitHub"), subtext.Render("j/k select, o show URL, t make todo"), ""}
+	lines := []string{subtext.Render("j/k select, o show URL, t make todo")}
 	if errMsg != "" {
 		return append(lines, errorText.Render("Error: "+errMsg))
 	}
@@ -708,7 +706,6 @@ func loadDashboardWithStats(db *store.DB) tea.Cmd {
 		var lines []string
 		
 		// Header with date/time
-		lines = append(lines, header.Render("Dashboard"))
 		lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
 		lines = append(lines, divider.Render(""))
 		
@@ -801,7 +798,6 @@ func buildFullDashboard(stats dashboardStatsMsg) []string {
 	now := time.Now()
 	host, _ := os.Hostname()
 	
-	lines = append(lines, header.Render("Dashboard"))
 	lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
 	lines = append(lines, divider.Render(""))
 	
@@ -843,13 +839,12 @@ func buildFullDashboard(stats dashboardStatsMsg) []string {
 func loadCalendar(month time.Time, feeds []string) tea.Cmd {
 	return func() tea.Msg {
 		lines := []string{
-			"Calendar",
-			"n next month, p previous month, T current month",
+			subtext.Render("n next month, p previous month, T current month"),
 			"",
-			month.Format("January 2006"),
+			header.Render(month.Format("January 2006")),
 		}
 		lines = append(lines, renderMonth(month)...)
-		lines = append(lines, "", "Google Calendar events:")
+		lines = append(lines, "", subtext.Render("Google Calendar events:"))
 		lines = append(lines, loadGoogleEvents(month, feeds)...)
 		return loadedMsg{tab: "Calendar", lines: lines}
 	}
@@ -1054,7 +1049,7 @@ func loadWeather() tea.Cmd {
 				place += ", " + payload.NearestArea[0].Country[0].Value
 			}
 		}
-		return loadedMsg{tab: "Weather", lines: []string{"Current weather", "", "Place: " + place, "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
+		return loadedMsg{tab: "Weather", lines: []string{subtext.Render("Place: " + place), "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
 	}
 }
 
@@ -1087,7 +1082,7 @@ func loadASU() tea.Cmd {
 		}
 		who := run(bin, "whoami")
 		courses := run(bin, "courses")
-		return loadedMsg{tab: "ASU", lines: []string{"ASU snapshot", "", "Profile:", trimLong(who, 18), "", "Courses:", trimLong(courses, 30)}}
+		return loadedMsg{tab: "ASU", lines: []string{"Profile:", trimLong(who, 18), "", "Courses:", trimLong(courses, 30)}}
 	}
 }
 
