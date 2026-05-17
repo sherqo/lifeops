@@ -137,13 +137,13 @@ func Run() error {
 	return err
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboard(), loadDashboardStats(m.db), loadTodos(m.db)) }
+func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboardWithStats(m.db), loadTodos(m.db)) }
 func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
 
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
 	switch tab {
 	case "Dashboard":
-		return tea.Batch(loadDashboard(), loadDashboardStats(db))
+		return loadDashboardWithStats(db)
 	case "Calendar":
 		return loadCalendar(month, feeds)
 	case "Weather":
@@ -697,7 +697,7 @@ func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
 	return lines
 }
 
-func loadDashboard() tea.Cmd {
+func loadDashboardWithStats(db *store.DB) tea.Cmd {
 	return func() tea.Msg {
 		now := time.Now()
 		host, _ := os.Hostname()
@@ -727,12 +727,44 @@ func loadDashboard() tea.Cmd {
 		}
 		lines = append(lines, divider.Render(""))
 		
-		// Stats section (will be updated via dashboardStatsMsg)
+		// Stats section - compute directly
 		lines = append(lines, header.Render("Stats"))
-		lines = append(lines, subtext.Render("Loading..."))
+		
+		openTodos, doneTodos := 0, 0
+		for _, t := range db.Todos {
+			if t.Completed {
+				doneTodos++
+			} else {
+				openTodos++
+			}
+		}
+		habitsDone := 0
+		for _, h := range db.Habits {
+			if h.Completed {
+				habitsDone++
+			}
+		}
+		
+		todoStr := fmt.Sprintf("Todos: %d open, %d done", openTodos, doneTodos)
+		todoColor := successText
+		if openTodos > 3 {
+			todoColor = errorText
+		}
+		lines = append(lines, todoColor.Render(todoStr))
+		
+		habitStr := fmt.Sprintf("Habits: %d/%d done", habitsDone, len(db.Habits))
+		habitColor := successText
+		if len(db.Habits) > 0 && habitsDone < len(db.Habits) {
+			habitColor = subtext
+		}
+		lines = append(lines, habitColor.Render(habitStr))
 		
 		return loadedMsg{tab: "Dashboard", lines: lines}
 	}
+}
+
+func loadDashboard() tea.Cmd {
+	return loadDashboardWithStats(nil)
 }
 
 func loadDashboardStats(db *store.DB) tea.Cmd {
