@@ -530,7 +530,7 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	view := ">>> " + tabBar + " <<<\n" + dividerStr + "\n" + body + "\n" + padding + controls + "\n" + status
+	view := tabBar + "\n" + dividerStr + "\n" + body + "\n" + padding + controls + "\n" + status
 	return view
 }
 
