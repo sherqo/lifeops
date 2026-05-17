@@ -527,8 +527,8 @@ func (m model) View() string {
 		body += "\n\n" + m.command.View()
 	}
 
-	// Window with content
-	window := windowStyle.Width(lipgloss.Width(tabBar)).Render(body)
+	// Simple divider line
+	dividerStr := strings.Repeat("─", max(20, m.width-2))
 
 	// Controls at bottom
 	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
@@ -538,7 +538,7 @@ func (m model) View() string {
 	padding := ""
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
-		need := m.height - lines - 2
+		need := m.height - lines - 4 // tabs + divider + controls + status
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
@@ -546,13 +546,14 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	return docStyle.Render(strings.Join([]string{
+	return strings.Join([]string{
 		tabBar,
-		window,
+		dividerStr,
+		body,
 		padding,
 		controls,
 		status,
-	}, "\n"))
+	}, "\n")
 }
 
 func (m model) currentTab() []string {
