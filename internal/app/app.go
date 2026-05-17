@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -229,6 +230,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = t.Width
 		m.height = t.Height
+		log.Printf("WindowSize: width=%d height=%d", t.Width, t.Height)
 	case tea.KeyMsg:
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
@@ -498,9 +500,13 @@ func (m model) View() string {
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
 		need := m.height - lines - 2
+		log.Printf("Padding: height=%d bodyLines=%d need=%d", m.height, lines, need)
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
+	} else {
+		// Fallback when height not available - use reasonable padding
+		padding = "\n\n\n\n\n\n\n\n"
 	}
 
 	return strings.Join([]string{
