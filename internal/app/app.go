@@ -483,16 +483,16 @@ func moveUp(m model) model {
 }
 
 func (m model) View() string {
-	// Simple text tabs - active in brackets
-	var tabParts []string
+	// Colored tabs - active with brackets and color
+	var tabBar string
 	for i, t := range tabs {
 		if i == m.tab {
-			tabParts = append(tabParts, "["+t+"]")
+			tabBar += tabActive.Render("["+t+"]") + " "
 		} else {
-			tabParts = append(tabParts, t)
+			tabBar += tabInactive.Render(t) + " "
 		}
 	}
-	tabBar := strings.Join(tabParts, " ")
+	tabBar = strings.TrimSpace(tabBar)
 
 	// Build body content - plain text
 	body := strings.Join(m.currentTab(), "\n")
@@ -511,12 +511,12 @@ func (m model) View() string {
 		body += "\n\n" + m.command.View()
 	}
 
-	// Simple divider line
-	dividerStr := strings.Repeat("-", max(20, m.width-2))
+	// Divider line with color
+	dividerStr := divider.Render(strings.Repeat("─", max(20, m.width-2)))
 
-	// Controls at bottom - plain text
-	controls := "h/l: tabs | j/k: move | r: refresh | ?: help | q: quit"
-	status := m.status
+	// Controls at bottom with color
+	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
+	status := statusBar.Render(" " + m.status)
 
 	// Padding to push controls to bottom
 	padding := ""
