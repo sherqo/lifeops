@@ -143,7 +143,7 @@ func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) t
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
 	switch tab {
 	case "Dashboard":
-		return loadDashboard()
+		return tea.Batch(loadDashboard(), loadDashboardStats(db))
 	case "Calendar":
 		return loadCalendar(month, feeds)
 	case "Weather":
