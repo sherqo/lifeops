@@ -131,8 +131,28 @@ func Run() error {
 	return err
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadAll(m.db, m.calMonth, m.calendarICS)) }
+func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboard(), loadTodos(m.db)) }
 func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
+
+func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
+	switch tab {
+	case "Dashboard":
+		return loadDashboard()
+	case "Calendar":
+		return loadCalendar(month, feeds)
+	case "Weather":
+		return loadWeather()
+	case "GitHub":
+		return loadGitHub()
+	case "ASU":
+		return loadASU()
+	case "Todos":
+		return loadTodos(db)
+	default:
+		return nil
+	}
+}
+
 func loadAll(db *store.DB, month time.Time, feeds []string) tea.Cmd {
 	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadWeather(), loadGitHub(), loadASU(), loadTodos(db))
 }
@@ -216,13 +236,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "h":
 			if m.tab > 0 {
 				m.tab--
+				return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 			}
 		case "l":
 			if m.tab < len(tabs)-1 {
 				m.tab++
+				return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 			}
 		case "r":
-			return m, loadAll(m.db, m.calMonth, m.calendarICS)
+			m.status = "refreshing..."
+			return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 		case "n":
 			if tabs[m.tab] == "Calendar" {
 				m.calMonth = m.calMonth.AddDate(0, 1, 0)
