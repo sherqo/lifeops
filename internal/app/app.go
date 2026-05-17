@@ -48,6 +48,7 @@ const (
 type model struct {
 	tab           int
 	width         int
+	height        int
 	status        string
 	helpMode      bool
 	mode          mode
@@ -227,6 +228,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch t := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = t.Width
+		m.height = t.Height
 	case tea.KeyMsg:
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
@@ -487,15 +489,24 @@ func (m model) View() string {
 		body += "\n\n" + m.command.View()
 	}
 	
-	// Controls at bottom
+	// Controls at bottom - add padding to push to bottom of terminal
 	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
 	status := statusBar.Render(" " + m.status)
+	
+	// Calculate padding to push controls to bottom
+	bodyLines := strings.Count(body, "\n") + 2
+	padding := ""
+	if m.height > bodyLines + 2 {
+		for i := 0; i < m.height - bodyLines - 2; i++ {
+			padding += "\n"
+		}
+	}
 	
 	return strings.Join([]string{
 		strings.Join(head, "  "),
 		divider.Render(strings.Repeat("─", max(20, m.width-2))),
 		body,
-		"",
+		padding,
 		controls,
 		status,
 	}, "\n")
