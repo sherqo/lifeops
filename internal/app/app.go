@@ -473,7 +473,7 @@ func (m model) View() string {
 			head = append(head, t)
 		}
 	}
-	tabBar := strings.Join(head, "  ")
+	tabBar := strings.Join(head, " ")
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
 		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
