@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,6 +33,24 @@ var (
 	doneItem     = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Strikethrough(true)
 	errorText    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	successText  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
+)
+
+func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
+	border := lipgloss.RoundedBorder()
+	border.BottomLeft = left
+	border.Bottom = middle
+	border.BottomRight = right
+	return border
+}
+
+var (
+	inactiveTabBorder = tabBorderWithBottom("┴", "─", "┴")
+	activeTabBorder   = tabBorderWithBottom("┘", " ", "└")
+	highlightColor    = lipgloss.Color("205")
+	inactiveTabStyle  = lipgloss.NewStyle().Border(inactiveTabBorder, true).BorderForeground(highlightColor).Padding(0, 1)
+	activeTabStyle    = inactiveTabStyle.Copy().Border(activeTabBorder, true)
+	windowStyle       = lipgloss.NewStyle().BorderForeground(highlightColor).Padding(1, 0).Border(lipgloss.NormalBorder()).UnsetBorderTop()
+	docStyle          = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
 var tabs = []string{"Home", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
@@ -230,7 +247,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = t.Width
 		m.height = t.Height
-		log.Printf("WindowSize: width=%d height=%d", t.Width, t.Height)
 	case tea.KeyMsg:
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
@@ -467,16 +483,34 @@ func moveUp(m model) model {
 }
 
 func (m model) View() string {
-	var head []string
+	// Build tabs using proper lipgloss styling (like official example)
+	var renderedTabs []string
 	for i, t := range tabs {
-		if i == m.tab {
-			head = append(head, tabActive.Render("["+t+"]"))
+		var style lipgloss.Style
+		isFirst, isLast, isActive := i == 0, i == len(tabs)-1, i == m.tab
+		if isActive {
+			style = activeTabStyle.Copy()
 		} else {
-			head = append(head, tabInactive.Render(t))
+			style = inactiveTabStyle.Copy()
 		}
+		border, _, _, _, _ := style.GetBorder()
+		if isFirst && isActive {
+			border.BottomLeft = "│"
+		} else if isFirst && !isActive {
+			border.BottomLeft = "├"
+		} else if isLast && isActive {
+			border.BottomRight = "│"
+		} else if isLast && !isActive {
+			border.BottomRight = "┤"
+		}
+		style = style.Border(border)
+		renderedTabs = append(renderedTabs, style.Render(t))
 	}
-	log.Printf("DEBUG tabs: head=%v", head)
-	log.Printf("DEBUG tabs: tabBar=%s", strings.Join(head, "  "))
+
+	// Join tabs horizontally
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+
+	// Build body content
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
 		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
@@ -492,33 +526,33 @@ func (m model) View() string {
 	if m.mode == modeCommand {
 		body += "\n\n" + m.command.View()
 	}
-	
+
+	// Window with content
+	window := windowStyle.Width(lipgloss.Width(tabBar)).Render(body)
+
 	// Controls at bottom
 	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
 	status := statusBar.Render(" " + m.status)
 
-	// Padding to push controls to bottom of terminal
+	// Padding to push controls to bottom
 	padding := ""
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
 		need := m.height - lines - 2
-		log.Printf("Padding: height=%d bodyLines=%d need=%d", m.height, lines, need)
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
 	} else {
-		// Fallback when height not available - minimal padding
 		padding = "\n\n"
 	}
 
-	return strings.Join([]string{
-		strings.Join(head, "  "),
-		divider.Render(strings.Repeat("─", max(20, m.width-2))),
-		body,
+	return docStyle.Render(strings.Join([]string{
+		tabBar,
+		window,
 		padding,
 		controls,
 		status,
-	}, "\n")
+	}, "\n"))
 }
 
 func (m model) currentTab() []string {
