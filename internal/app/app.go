@@ -79,9 +79,15 @@ type loadedMsg struct {
 	tab   string
 	lines []string
 }
-type journalRefreshMsg struct{}
 type githubLoadedMsg struct{ prs []ghPR }
 type githubErrorMsg struct{ err string }
+type journalRefreshMsg struct{}
+type dashboardStatsMsg struct {
+	openTodos  int
+	doneTodos  int
+	habitsDone int
+	habitsTotal int
+}
 
 type ghPR struct {
 	Number int    `json:"number"`
@@ -131,7 +137,7 @@ func Run() error {
 	return err
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboard(), loadTodos(m.db)) }
+func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboard(), loadDashboardStats(m.db), loadTodos(m.db)) }
 func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
 
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
@@ -349,6 +355,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.githubErr = t.err
 	case journalRefreshMsg:
 		m.status = "journal refreshed"
+	case dashboardStatsMsg:
+		m.dashboard = renderDashboardWithStats(m.dashboard, t)
+		m.status = "dashboard updated"
 	}
 	return m, nil
 }
@@ -690,16 +699,110 @@ func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
 
 func loadDashboard() tea.Cmd {
 	return func() tea.Msg {
+		now := time.Now()
 		host, _ := os.Hostname()
-		lines := []string{"Machine info", "", "Host: " + host, "OS/Arch: " + runtime.GOOS + "/" + runtime.GOARCH}
+		
+		var lines []string
+		
+		// Header with date/time
+		lines = append(lines, header.Render("Dashboard"))
+		lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
+		lines = append(lines, divider.Render(""))
+		
+		// Machine section
+		lines = append(lines, header.Render("Machine"))
+		osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+		lines = append(lines, normalItem.Render("Host: "+host))
+		lines = append(lines, normalItem.Render("OS: "+osInfo))
+		
 		if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-			lines = append(lines, "Load: "+strings.TrimSpace(string(b)))
+			load := strings.TrimSpace(string(b))
+			parts := strings.Fields(load)
+			if len(parts) > 0 {
+				lines = append(lines, normalItem.Render("Load: "+parts[0]))
+			}
 		}
 		if mem, err := parseMem(); err == nil {
-			lines = append(lines, fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1]))
+			lines = append(lines, normalItem.Render(fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1])))
 		}
+		lines = append(lines, divider.Render(""))
+		
+		// Stats section (will be updated via dashboardStatsMsg)
+		lines = append(lines, header.Render("Stats"))
+		lines = append(lines, subtext.Render("Loading..."))
+		
 		return loadedMsg{tab: "Dashboard", lines: lines}
 	}
+}
+
+func loadDashboardStats(db *store.DB) tea.Cmd {
+	return func() tea.Msg {
+		open := 0
+		done := 0
+		for _, t := range db.Todos {
+			if t.Completed {
+				done++
+			} else {
+				open++
+			}
+		}
+		habitsDone := 0
+		for _, h := range db.Habits {
+			if h.Completed {
+				habitsDone++
+			}
+		}
+		return dashboardStatsMsg{
+			openTodos:  open,
+			doneTodos:  done,
+			habitsDone: habitsDone,
+			habitsTotal: len(db.Habits),
+		}
+	}
+}
+
+func renderDashboardWithStats(current []string, stats dashboardStatsMsg) []string {
+	var lines []string
+	now := time.Now()
+	host, _ := os.Hostname()
+	
+	lines = append(lines, header.Render("Dashboard"))
+	lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
+	lines = append(lines, divider.Render(""))
+	
+	lines = append(lines, header.Render("Machine"))
+	osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+	lines = append(lines, normalItem.Render("Host: "+host))
+	lines = append(lines, normalItem.Render("OS: "+osInfo))
+	
+	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
+		load := strings.TrimSpace(string(b))
+		parts := strings.Fields(load)
+		if len(parts) > 0 {
+			lines = append(lines, normalItem.Render("Load: "+parts[0]))
+		}
+	}
+	if mem, err := parseMem(); err == nil {
+		lines = append(lines, normalItem.Render(fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1])))
+	}
+	lines = append(lines, divider.Render(""))
+	
+	lines = append(lines, header.Render("Stats"))
+	todoStr := fmt.Sprintf("Todos: %d open, %d done", stats.openTodos, stats.doneTodos)
+	todoColor := successText
+	if stats.openTodos > 3 {
+		todoColor = errorText
+	}
+	lines = append(lines, todoColor.Render(todoStr))
+	
+	habitStr := fmt.Sprintf("Habits: %d/%d done", stats.habitsDone, stats.habitsTotal)
+	habitColor := successText
+	if stats.habitsTotal > 0 && stats.habitsDone < stats.habitsTotal {
+		habitColor = subtext
+	}
+	lines = append(lines, habitColor.Render(habitStr))
+	
+	return lines
 }
 
 func loadCalendar(month time.Time, feeds []string) tea.Cmd {
