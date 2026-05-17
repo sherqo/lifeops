@@ -530,14 +530,7 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	view := strings.Join([]string{
-		tabBar,
-		dividerStr,
-		body,
-		padding,
-		controls,
-		status,
-	}, "\n")
+	view := ">>> " + tabBar + " <<<\n" + dividerStr + "\n" + body + "\n" + padding + controls + "\n" + status
 	return view
 }
 
