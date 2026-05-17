@@ -494,15 +494,15 @@ func (m model) View() string {
 	}
 	tabBar := strings.Join(tabParts, " ")
 
-	// Build body content
+	// Build body content - plain text
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
-		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
-			subtext.Render("Calendar: n/p month, T today") + "\n" +
-			subtext.Render("Todos: x toggle, f filter") + "\n" +
-			subtext.Render("Journal/Notes: e open in editor") + "\n" +
-			subtext.Render("GitHub: o show URL, t todo") + "\n" +
-			subtext.Render("Habits: space toggle")
+		body = "?: help | : command | a add | h/l tabs | j/k move\n" +
+			"Calendar: n/p month, T today\n" +
+			"Todos: x toggle, f filter\n" +
+			"Journal/Notes: e open in editor\n" +
+			"GitHub: o show URL, t todo\n" +
+			"Habits: space toggle"
 	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
@@ -512,17 +512,17 @@ func (m model) View() string {
 	}
 
 	// Simple divider line
-	dividerStr := strings.Repeat("─", max(20, m.width-2))
+	dividerStr := strings.Repeat("-", max(20, m.width-2))
 
-	// Controls at bottom
-	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
-	status := statusBar.Render(" " + m.status)
+	// Controls at bottom - plain text
+	controls := "h/l: tabs | j/k: move | r: refresh | ?: help | q: quit"
+	status := m.status
 
 	// Padding to push controls to bottom
 	padding := ""
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
-		need := m.height - lines - 4 // tabs + divider + controls + status
+		need := m.height - lines - 4
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
@@ -530,7 +530,7 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	return strings.Join([]string{
+	view := strings.Join([]string{
 		tabBar,
 		dividerStr,
 		body,
@@ -538,6 +538,7 @@ func (m model) View() string {
 		controls,
 		status,
 	}, "\n")
+	return view
 }
 
 func (m model) currentTab() []string {
