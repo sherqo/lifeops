@@ -503,7 +503,7 @@ func (m model) View() string {
 
 func (m model) currentTab() []string {
 	switch tabs[m.tab] {
-	case "Dashboard":
+	case "Home":
 		return m.dashboard
 	case "Calendar":
 		return m.calendar
