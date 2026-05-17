@@ -465,17 +465,14 @@ func moveUp(m model) model {
 }
 
 func (m model) View() string {
-	// Build tabs - active in brackets, others plain
 	var head []string
 	for i, t := range tabs {
 		if i == m.tab {
-			head = append(head, "["+t+"]")
+			head = append(head, tabActive.Render("["+t+"]"))
 		} else {
-			head = append(head, t)
+			head = append(head, tabInactive.Render(t))
 		}
 	}
-	tabBar := strings.Join(head, " ")
-	
 	body := strings.Join(m.currentTab(), "\n")
 	if m.helpMode {
 		body = subtext.Render("?: help | : command | a add | h/l tabs | j/k move") + "\n" +
@@ -495,19 +492,19 @@ func (m model) View() string {
 	// Controls at bottom
 	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
 	status := statusBar.Render(" " + m.status)
-	
-	// Calculate padding to push controls to bottom of terminal
+
+	// Padding to push controls to bottom of terminal
 	padding := ""
 	if m.height > 0 {
-		bodyLines := strings.Count(body, "\n") + 1
-		needed := m.height - bodyLines - 2
-		if needed > 0 {
-			padding = strings.Repeat("\n", needed)
+		lines := strings.Count(body, "\n") + 1
+		need := m.height - lines - 2
+		if need > 0 {
+			padding = strings.Repeat("\n", need)
 		}
 	}
-	
+
 	return strings.Join([]string{
-		tabBar,
+		strings.Join(head, "  "),
 		divider.Render(strings.Repeat("─", max(20, m.width-2))),
 		body,
 		padding,
