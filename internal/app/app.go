@@ -133,7 +133,7 @@ func Run() error {
 	cmd.Placeholder = "q | refresh | tab <name> | set-journal <path>"
 	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
@@ -507,8 +507,8 @@ func (m model) View() string {
 			padding = strings.Repeat("\n", need)
 		}
 	} else {
-		// Fallback when height not available - use reasonable padding
-		padding = "\n\n\n\n\n\n\n\n"
+		// Fallback when height not available - minimal padding
+		padding = "\n\n"
 	}
 
 	return strings.Join([]string{
