@@ -483,32 +483,16 @@ func moveUp(m model) model {
 }
 
 func (m model) View() string {
-	// Build tabs using proper lipgloss styling (like official example)
-	var renderedTabs []string
+	// Simple text tabs - active in brackets
+	var tabParts []string
 	for i, t := range tabs {
-		var style lipgloss.Style
-		isFirst, isLast, isActive := i == 0, i == len(tabs)-1, i == m.tab
-		if isActive {
-			style = activeTabStyle.Copy()
+		if i == m.tab {
+			tabParts = append(tabParts, "["+t+"]")
 		} else {
-			style = inactiveTabStyle.Copy()
+			tabParts = append(tabParts, t)
 		}
-		border, _, _, _, _ := style.GetBorder()
-		if isFirst && isActive {
-			border.BottomLeft = "│"
-		} else if isFirst && !isActive {
-			border.BottomLeft = "├"
-		} else if isLast && isActive {
-			border.BottomRight = "│"
-		} else if isLast && !isActive {
-			border.BottomRight = "┤"
-		}
-		style = style.Border(border)
-		renderedTabs = append(renderedTabs, style.Render(t))
 	}
-
-	// Join tabs horizontally
-	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+	tabBar := strings.Join(tabParts, " ")
 
 	// Build body content
 	body := strings.Join(m.currentTab(), "\n")
