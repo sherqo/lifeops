@@ -265,7 +265,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func tickFast() tea.Cmd  { return tea.Tick(1*time.Minute, func(time.Time) tea.Msg { return fastRefreshMsg{} }) }
-func tickSlow() tea.Cmd  { return tea.Tick(10*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} }) }
+func tickSlow() tea.Cmd  { return tea.Tick(30*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} }) }
 func tickVerySlow() tea.Cmd { return tea.Tick(1*time.Hour, func(time.Time) tea.Msg { return verySlowRefreshMsg{} }) }
 
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
@@ -474,7 +474,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fastRefreshMsg:
 		return m, tea.Batch(loadDashboardWithStats(m.db), loadTodos(m.db), tickFast())
 	case slowRefreshMsg:
-		return m, tea.Batch(loadWeather(), loadGitHub(), tickSlow())
+		return m, tea.Batch(loadWeather(), tickSlow())
 	case verySlowRefreshMsg:
 		return m, tea.Batch(loadASU(), tickVerySlow())
 	case loadedMsg:
