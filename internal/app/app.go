@@ -1303,7 +1303,7 @@ func loadGitHub() tea.Cmd {
 		raw := run("gh", "search", "prs", "--author", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository")
 		var prs []ghPR
 		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
-			return githubErrorMsg{err: "failed to parse PRs"}
+			return githubErrorMsg{err: "failed to parse PRs: " + raw}
 		}
 
 		// Load Repos
