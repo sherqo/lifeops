@@ -94,6 +94,9 @@ type model struct {
 }
 
 type refreshMsg struct{}
+type fastRefreshMsg struct{}    // 1 minute - dashboard, todos
+type slowRefreshMsg struct{}     // 10 minutes - weather, github
+type verySlowRefreshMsg struct{} // 1 hour - asu
 type loadedMsg struct {
 	tab   string
 	lines []string
@@ -156,8 +159,23 @@ func Run() error {
 	return err
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(tick(), loadDashboardWithStats(m.db), loadTodos(m.db)) }
-func tick() tea.Cmd           { return tea.Tick(2*time.Minute, func(time.Time) tea.Msg { return refreshMsg{} }) }
+func (m model) Init() tea.Cmd {
+	return tea.Batch(
+		tickFast(),
+		tickSlow(),
+		tickVerySlow(),
+		loadDashboardWithStats(m.db),
+		loadTodos(m.db),
+		loadCalendar(m.calMonth, m.calendarICS),
+		loadWeather(),
+		loadGitHub(),
+		loadASU(),
+	)
+}
+
+func tickFast() tea.Cmd  { return tea.Tick(1*time.Minute, func(time.Time) tea.Msg { return fastRefreshMsg{} }) }
+func tickSlow() tea.Cmd  { return tea.Tick(10*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} }) }
+func tickVerySlow() tea.Cmd { return tea.Tick(1*time.Hour, func(time.Time) tea.Msg { return verySlowRefreshMsg{} }) }
 
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
 	switch tab {
@@ -352,8 +370,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "habit toggled"
 			}
 		}
-	case refreshMsg:
-		return m, tea.Batch(loadDashboard(), loadCalendar(m.calMonth, m.calendarICS), loadWeather(), loadGitHub(), loadASU(), tick())
+	case fastRefreshMsg:
+		return m, tea.Batch(loadDashboardWithStats(m.db), loadTodos(m.db), tickFast())
+	case slowRefreshMsg:
+		return m, tea.Batch(loadWeather(), loadGitHub(), tickSlow())
+	case verySlowRefreshMsg:
+		return m, tea.Batch(loadASU(), tickVerySlow())
 	case loadedMsg:
 		if t.tab == "Dashboard" {
 			m.dashboard = t.lines
