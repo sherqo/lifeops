@@ -1318,7 +1318,7 @@ func loadGitHub() tea.Cmd {
 		}
 
 		// Load Reviews requested
-		raw = run("gh", "search", "prs", "--review-requested", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository,author,reviewDecision")
+		raw = run("gh", "search", "prs", "--review-requested", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository,author")
 		var rawReviews []ghReviewRaw
 		if err := json.Unmarshal([]byte(raw), &rawReviews); err != nil {
 			return githubErrorMsg{err: "failed to parse reviews"}
