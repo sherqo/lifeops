@@ -79,9 +79,13 @@ type model struct {
 	db            *store.DB
 	todoCursor    int
 	todoFilter    store.TodoFilter
-	ghCursor      int
-	githubPRs     []ghPR
-	githubErr     string
+	ghCursor       int
+	ghSection      int // 0=My PRs, 1=Repos, 2=Reviews, 3=Issues
+	githubPRs      []ghPR
+	githubRepos    []ghRepo
+	githubReviews  []ghReview
+	githubIssues   []ghIssue
+	githubErr      string
 	dashboard     []string
 	calendar      []string
 	calMonth      time.Time
@@ -101,7 +105,12 @@ type loadedMsg struct {
 	tab   string
 	lines []string
 }
-type githubLoadedMsg struct{ prs []ghPR }
+type githubLoadedMsg struct {
+	prs     []ghPR
+	repos   []ghRepo
+	reviews []ghReview
+	issues  []ghIssue
+}
 type githubErrorMsg struct{ err string }
 type journalRefreshMsg struct{}
 type dashboardStatsMsg struct {
@@ -118,6 +127,88 @@ type ghPR struct {
 	Repo   struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
+}
+
+type ghRepo struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+	Language    string `json:"-"`
+}
+
+type ghRepoRaw struct {
+	Name            string `json:"name"`
+	URL             string `json:"url"`
+	Description     string `json:"description"`
+	Visibility      string `json:"visibility"`
+	PrimaryLanguage struct{ Name string } `json:"primaryLanguage"`
+}
+
+func (r ghRepoRaw) toGhRepo() ghRepo {
+	lang := ""
+	if r.PrimaryLanguage.Name != "" {
+		lang = r.PrimaryLanguage.Name
+	}
+	return ghRepo{
+		Name:        r.Name,
+		URL:         r.URL,
+		Description: r.Description,
+		Visibility:  r.Visibility,
+		Language:    lang,
+	}
+}
+
+type ghReview struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Repo   string `json:"-"`
+	Author string `json:"author"`
+}
+
+type ghReviewRaw struct {
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	Author     string `json:"author"`
+	Repository struct{ NameWithOwner string } `json:"repository"`
+}
+
+func (r ghReviewRaw) toGhReview() ghReview {
+	return ghReview{
+		Number: r.Number,
+		Title:  r.Title,
+		URL:    r.URL,
+		Repo:   r.Repository.NameWithOwner,
+		Author: r.Author,
+	}
+}
+
+type ghIssue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Repo   string `json:"-"`
+	State  string `json:"state"`
+}
+
+type ghIssueRaw struct {
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	State      string `json:"state"`
+	Repository struct{ NameWithOwner string } `json:"repository"`
+}
+
+func (r ghIssueRaw) toGhIssue() ghIssue {
+	return ghIssue{
+		Number: r.Number,
+		Title:  r.Title,
+		URL:    r.URL,
+		Repo:   r.Repository.NameWithOwner,
+		State:  r.State,
+	}
 }
 
 var defaultCalendarICS []string
@@ -369,6 +460,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "habit toggled"
 			}
+		case "[":
+			if tabs[m.tab] == "GitHub" && m.ghSection > 0 {
+				m.ghSection--
+				m.ghCursor = 0
+			}
+		case "]":
+			if tabs[m.tab] == "GitHub" && m.ghSection < 3 {
+				m.ghSection++
+				m.ghCursor = 0
+			}
 		}
 	case fastRefreshMsg:
 		return m, tea.Batch(loadDashboardWithStats(m.db), loadTodos(m.db), tickFast())
@@ -391,6 +492,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case githubLoadedMsg:
 		m.githubPRs = t.prs
+		m.githubRepos = t.repos
+		m.githubReviews = t.reviews
+		m.githubIssues = t.issues
 		m.githubErr = ""
 	case githubErrorMsg:
 		m.githubPRs = nil
@@ -458,8 +562,21 @@ func runCommand(m *model, c string) tea.Cmd {
 }
 
 func moveDown(m model) model {
-	if tabs[m.tab] == "GitHub" && m.ghCursor < len(m.githubPRs)-1 {
-		m.ghCursor++
+	if tabs[m.tab] == "GitHub" {
+		var max int
+		switch m.ghSection {
+		case 0:
+			max = len(m.githubPRs)
+		case 1:
+			max = len(m.githubRepos)
+		case 2:
+			max = len(m.githubReviews)
+		case 3:
+			max = len(m.githubIssues)
+		}
+		if max > 0 && m.ghCursor < max-1 {
+			m.ghCursor++
+		}
 	}
 	if tabs[m.tab] == "Todos" {
 		n := len(store.VisibleTodoIndices(m.db, m.todoFilter))
@@ -534,7 +651,7 @@ func (m model) View() string {
 		"Todos":    "x: toggle | f: filter",
 		"Journal":  "a: add | e: edit",
 		"Notes":    "a: add | e: edit",
-		"GitHub":   "o: open URL | t: todo",
+		"GitHub":   "[:] sections | Enter: open | t: todo",
 		"Habits":   "space: toggle",
 		"ASU":      "o: open",
 	}
@@ -578,7 +695,7 @@ func (m model) currentTab() []string {
 	case "Notes":
 		return renderNotes(m.notesDir, m.notesCursor)
 	case "GitHub":
-		return renderGitHub(m.githubPRs, m.ghCursor, m.githubErr)
+		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.ghSection, m.ghCursor, m.githubErr)
 	case "ASU":
 		return m.asu
 	default:
@@ -736,23 +853,83 @@ func renderHabits(h []store.Habit, cursor int) []string {
 	return lines
 }
 
-func renderGitHub(prs []ghPR, cursor int, errMsg string) []string {
+func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIssue, section, cursor int, errMsg string) []string {
 	var lines []string
+
+	sectionNames := []string{"My PRs", "Repositories", "Reviews", "Issues"}
+	lines = append(lines, header.Render(sectionNames[section]))
+	lines = append(lines, "")
+
 	if errMsg != "" {
 		return append(lines, errorText.Render("Error: "+errMsg))
 	}
-	if len(prs) == 0 {
-		return append(lines, subtext.Render("No open pull requests"))
-	}
-	for i, pr := range prs {
-		var itemStyle lipgloss.Style
-		if i == cursor {
-			itemStyle = selected.Bold(true)
-		} else {
-			itemStyle = normalItem
+
+	switch section {
+	case 0: // My PRs
+		if len(prs) == 0 {
+			lines = append(lines, subtext.Render("No open pull requests"))
 		}
-		lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s (%s)", pr.Number, pr.Title, pr.Repo.NameWithOwner)))
+		for i, pr := range prs {
+			var itemStyle lipgloss.Style
+			if i == cursor {
+				itemStyle = selected.Bold(true)
+			} else {
+				itemStyle = normalItem
+			}
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", pr.Number, pr.Title)))
+			lines = append(lines, subtext.Render("  "+pr.Repo.NameWithOwner))
+		}
+	case 1: // Repos
+		if len(repos) == 0 {
+			lines = append(lines, subtext.Render("No repositories"))
+		}
+		for i, r := range repos {
+			var itemStyle lipgloss.Style
+			if i == cursor {
+				itemStyle = selected.Bold(true)
+			} else {
+				itemStyle = normalItem
+			}
+			vis := subtext.Render("[" + r.Visibility + "]")
+			lang := ""
+			if r.Language != "" {
+				lang = subtext.Render(" " + r.Language)
+			}
+			lines = append(lines, itemStyle.Render(r.Name)+" "+vis+lang)
+			if r.Description != "" {
+				lines = append(lines, subtext.Render("  "+r.Description))
+			}
+		}
+	case 2: // Reviews
+		if len(reviews) == 0 {
+			lines = append(lines, subtext.Render("No reviews requested"))
+		}
+		for i, r := range reviews {
+			var itemStyle lipgloss.Style
+			if i == cursor {
+				itemStyle = selected.Bold(true)
+			} else {
+				itemStyle = normalItem
+			}
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", r.Number, r.Title)))
+			lines = append(lines, subtext.Render("  "+r.Repo+" by "+r.Author))
+		}
+	case 3: // Issues
+		if len(issues) == 0 {
+			lines = append(lines, subtext.Render("No assigned issues"))
+		}
+		for i, iss := range issues {
+			var itemStyle lipgloss.Style
+			if i == cursor {
+				itemStyle = selected.Bold(true)
+			} else {
+				itemStyle = normalItem
+			}
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", iss.Number, iss.Title)))
+			lines = append(lines, subtext.Render("  "+iss.Repo))
+		}
 	}
+
 	return lines
 }
 
@@ -1121,12 +1298,53 @@ func loadGitHub() tea.Cmd {
 		if err := exec.Command("gh", "auth", "status").Run(); err != nil {
 			return githubErrorMsg{err: "gh not authenticated"}
 		}
-		raw := run("gh", "search", "prs", "--author", "@me", "--state", "open", "--limit", "20", "--json", "number,title,url,repository")
+
+		// Load My PRs
+		raw := run("gh", "search", "prs", "--author", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository")
 		var prs []ghPR
 		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
-			return githubErrorMsg{err: "failed to parse gh output"}
+			return githubErrorMsg{err: "failed to parse PRs"}
 		}
-		return githubLoadedMsg{prs: prs}
+
+		// Load Repos
+		raw = run("gh", "repo", "list", "--limit", "20", "--json", "name,url,description,visibility,primaryLanguage")
+		var rawRepos []ghRepoRaw
+		if err := json.Unmarshal([]byte(raw), &rawRepos); err != nil {
+			return githubErrorMsg{err: "failed to parse repos"}
+		}
+		var repos []ghRepo
+		for _, r := range rawRepos {
+			repos = append(repos, r.toGhRepo())
+		}
+
+		// Load Reviews requested
+		raw = run("gh", "search", "prs", "--review-requested", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository,author,reviewDecision")
+		var rawReviews []ghReviewRaw
+		if err := json.Unmarshal([]byte(raw), &rawReviews); err != nil {
+			return githubErrorMsg{err: "failed to parse reviews"}
+		}
+		var reviews []ghReview
+		for _, r := range rawReviews {
+			reviews = append(reviews, r.toGhReview())
+		}
+
+		// Load Issues assigned
+		raw = run("gh", "search", "issues", "--assignee", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository,state")
+		var rawIssues []ghIssueRaw
+		if err := json.Unmarshal([]byte(raw), &rawIssues); err != nil {
+			return githubErrorMsg{err: "failed to parse issues"}
+		}
+		var issues []ghIssue
+		for _, r := range rawIssues {
+			issues = append(issues, r.toGhIssue())
+		}
+
+		return struct {
+			prs     []ghPR
+			repos   []ghRepo
+			reviews []ghReview
+			issues  []ghIssue
+		}{prs: prs, repos: repos, reviews: reviews, issues: issues}
 	}
 }
 
