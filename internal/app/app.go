@@ -497,8 +497,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.githubIssues = t.issues
 		m.githubErr = ""
 	case githubErrorMsg:
-		m.githubPRs = nil
 		m.githubErr = t.err
+		m.status = "GitHub error: " + t.err
 	case journalRefreshMsg:
 		m.status = "journal refreshed"
 	case dashboardStatsMsg:
@@ -1358,8 +1358,46 @@ func loadASU() tea.Cmd {
 			return loadedMsg{tab: "ASU", lines: []string{"ASU binary not found", "Expected at " + bin}}
 		}
 		who := run(bin, "whoami")
-		courses := run(bin, "courses")
-		return loadedMsg{tab: "ASU", lines: []string{"Profile:", trimLong(who, 18), "", "Courses:", trimLong(courses, 30)}}
+		raw := run(bin, "courses", "--json")
+		lines := []string{"Profile:", trimLong(who, 18), "", "Courses:"}
+		var payload struct {
+			Studies []struct {
+				Code          string `json:"code"`
+				Name          string `json:"en_name"`
+				GradesDetails []struct {
+					Name      string  `json:"en_name"`
+					Degree    float64 `json:"degree"`
+					MaxDegree float64 `json:"max_degree"`
+				} `json:"grades_detailes"`
+			} `json:"studies"`
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			courses := run(bin, "courses")
+			lines = append(lines, trimLong(courses, 30))
+			return loadedMsg{tab: "ASU", lines: lines}
+		}
+		for _, s := range payload.Studies {
+			if s.Code == "" && s.Name == "" {
+				continue
+			}
+			lines = append(lines, header.Render(s.Code+" - "+s.Name))
+			if len(s.GradesDetails) == 0 {
+				lines = append(lines, subtext.Render("No grades yet"))
+				continue
+			}
+			var parts []string
+			for _, g := range s.GradesDetails {
+				if g.Name == "" {
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("%s: %.0f/%.0f", g.Name, g.Degree, g.MaxDegree))
+			}
+			if len(parts) > 0 {
+				lines = append(lines, normalItem.Render(strings.Join(parts, " | ")))
+			}
+			lines = append(lines, "")
+		}
+		return loadedMsg{tab: "ASU", lines: lines}
 	}
 }
 
