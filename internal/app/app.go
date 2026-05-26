@@ -61,7 +61,6 @@ type mode int
 const (
 	modeNormal mode = iota
 	modeInput
-	modeCommand
 )
 
 type model struct {
@@ -69,10 +68,8 @@ type model struct {
 	width         int
 	height        int
 	status        string
-	helpMode      bool
 	mode          mode
 	input         textinput.Model
-	command       textinput.Model
 	dataDir       string
 	notesDir      string
 	journalDir    string
@@ -303,11 +300,8 @@ func Run() error {
 	in := textinput.New()
 	in.Placeholder = "Type and press Enter"
 	in.Prompt = "> "
-	cmd := textinput.New()
-	cmd.Placeholder = "q | refresh | tab <name> | set-journal <path>"
-	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, status: "ready", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
 	for _, tab := range resolved {
 		if tab.Type == "command" {
 			m.customTabs[tab.Name] = []string{"Loading..."}
@@ -453,27 +447,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	if m.mode == modeCommand {
-		var cmd tea.Cmd
-		m.command, cmd = m.command.Update(msg)
-		if k, ok := msg.(tea.KeyMsg); ok {
-			if k.String() == "esc" {
-				m.mode = modeNormal
-				m.command.Blur()
-				m.status = "command cancelled"
-				return m, nil
-			}
-			if k.String() == "enter" {
-				c := strings.TrimSpace(m.command.Value())
-				m.command.Reset()
-				m.mode = modeNormal
-				m.command.Blur()
-				return m, runCommand(&m, c)
-			}
-		}
-		return m, cmd
-	}
-
 	switch t := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = t.Width
@@ -482,14 +455,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
 			return m, tea.Quit
-		case ":":
-			m.mode = modeCommand
-			m.command.Focus()
-			m.status = "command mode"
-			return m, nil
-		case "?":
-			m.helpMode = !m.helpMode
-			return m, nil
 		case "h":
 			if m.tab > 0 {
 				m.tab--
@@ -727,73 +692,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func runCommand(m *model, c string) tea.Cmd {
-	parts := strings.Fields(c)
-	if len(parts) == 0 {
-		return nil
-	}
-	switch parts[0] {
-	case "q":
-		return tea.Quit
-	case "refresh":
-		cmds := []tea.Cmd{loadAll(m.db, m.calMonth, m.calendarICS)}
-		for _, t := range resolveTabs(m.cfg) {
-			if t.Type == "command" {
-				cmds = append(cmds, loadCustomTab(t.Name, t.Command))
-			}
-		}
-		return tea.Batch(cmds...)
-	case "tab":
-		if len(parts) > 1 {
-			name := strings.ToLower(strings.Join(parts[1:], " "))
-			for i, t := range m.tabNames() {
-				if strings.ToLower(t) == name {
-					m.tab = i
-					if cmd := loadTab(t, m.db, m.calMonth, m.calendarICS); cmd != nil {
-						return cmd
-					}
-					for _, ct := range resolveTabs(m.cfg) {
-						if ct.Type == "command" && strings.EqualFold(ct.Name, t) {
-							return loadCustomTab(ct.Name, ct.Command)
-						}
-					}
-					return nil
-				}
-			}
-		}
-	case "set-journal":
-		if len(parts) > 1 {
-			path := strings.TrimSpace(strings.Join(parts[1:], " "))
-			if path != "" {
-				m.journalDir = path
-				if m.cfg != nil {
-					m.cfg.JournalDir = path
-					_ = config.Save(m.dataDir, m.cfg)
-				}
-				_ = content.EnsureDirs(m.notesDir, m.journalDir)
-				m.journalCursor = 0
-				m.status = "journal path updated"
-			}
-		}
-	case "set-notes":
-		if len(parts) > 1 {
-			path := strings.TrimSpace(strings.Join(parts[1:], " "))
-			if path != "" {
-				m.notesDir = path
-				if m.cfg != nil {
-					m.cfg.NotesDir = path
-					_ = config.Save(m.dataDir, m.cfg)
-				}
-				_ = content.EnsureDirs(m.notesDir, m.journalDir)
-				m.status = "notes path updated"
-			}
-		}
-	case "show-paths":
-		m.status = "journal: " + m.journalDir
-	}
-	return nil
-}
-
 func moveDown(m model) model {
 	if m.tabNames()[m.tab] == "GitHub" {
 		var max int
@@ -886,10 +784,6 @@ func (m model) View() string {
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
 	}
-	if m.mode == modeCommand {
-		body += "\n\n" + m.command.View()
-	}
-
 	// Divider line with color
 	dividerStr := divider.Render(strings.Repeat("─", max(20, m.width-2)))
 
