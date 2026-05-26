@@ -304,7 +304,7 @@ func Run() error {
 	cmd.Placeholder = "q | refresh | tab <name> | set-journal <path>"
 	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
 	for _, tab := range resolved {
 		if tab.Type == "command" {
 			m.customTabs[tab.Name] = []string{"Loading..."}
@@ -1099,6 +1099,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 
 	sectionNames := []string{"My PRs", "Repositories", "Reviews", "Issues", "Account"}
 	lines = append(lines, header.Render(sectionNames[section]))
+	lines = append(lines, subtext.Render("Use [ and ] to switch sections"))
 	lines = append(lines, "")
 
 	if errMsg != "" {
@@ -1510,8 +1511,8 @@ func loadGitHub() tea.Cmd {
 
 		// Load My PRs
 		raw := run("gh", "search", "prs", "--author", "@me", "--state", "open", "--limit", "15", "--json", "number,title,url,repository")
-		if raw == "" {
-			return githubLoadedMsg{prs: []ghPR{}, repos: []ghRepo{}, reviews: []ghReview{}, issues: []ghIssue{}}
+		if strings.TrimSpace(raw) == "" {
+			raw = "[]"
 		}
 		var prs []ghPR
 		if err := json.Unmarshal([]byte(raw), &prs); err != nil {
