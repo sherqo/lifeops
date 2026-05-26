@@ -855,6 +855,18 @@ func (m model) View() string {
 
 	// Build body content - plain text
 	body := strings.Join(m.currentTab(), "\n")
+	if m.height > 0 {
+		maxBody := m.height - 7 // tabs, divider, hint, controls, status
+		if maxBody < 5 {
+			maxBody = 5
+		}
+		parts := strings.Split(body, "\n")
+		if len(parts) > maxBody {
+			parts = parts[:maxBody]
+			parts[len(parts)-1] = subtext.Render("... (content clipped)")
+			body = strings.Join(parts, "\n")
+		}
+	}
 	if m.mode == modeInput {
 		body += "\n\n" + m.input.View()
 	}
@@ -1132,8 +1144,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 			} else {
 				itemStyle = normalItem
 			}
-			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", pr.Number, pr.Title)))
-			lines = append(lines, subtext.Render("  "+pr.Repo.NameWithOwner))
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s (%s)", pr.Number, pr.Title, pr.Repo.NameWithOwner)))
 		}
 	case 1: // Repos
 		if len(repos) == 0 {
@@ -1153,7 +1164,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 			}
 			lines = append(lines, itemStyle.Render(r.Name)+" "+vis+lang)
 			if r.Description != "" {
-				lines = append(lines, subtext.Render("  "+r.Description))
+				lines[len(lines)-1] += " " + subtext.Render("- "+trimOneLine(r.Description, 60))
 			}
 		}
 	case 2: // Reviews
@@ -1167,8 +1178,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 			} else {
 				itemStyle = normalItem
 			}
-			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", r.Number, r.Title)))
-			lines = append(lines, subtext.Render("  "+r.Repo+" by "+r.Author))
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s (%s by %s)", r.Number, r.Title, r.Repo, r.Author)))
 		}
 	case 3: // Issues
 		if len(issues) == 0 {
@@ -1181,8 +1191,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 			} else {
 				itemStyle = normalItem
 			}
-			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", iss.Number, iss.Title)))
-			lines = append(lines, subtext.Render("  "+iss.Repo))
+			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s (%s)", iss.Number, iss.Title, iss.Repo)))
 		}
 	case 4: // Account
 		name := profile.Login
@@ -1791,6 +1800,17 @@ func trimLong(s string, maxLines int) string {
 		return strings.Join(parts, "\n")
 	}
 	return strings.Join(parts[:maxLines], "\n") + "\n..."
+}
+
+func trimOneLine(s string, max int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) <= max {
+		return s
+	}
+	if max < 4 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 
