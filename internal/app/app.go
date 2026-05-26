@@ -530,10 +530,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = moveDown(m)
 		case "k":
 			m = moveUp(m)
-		case "x":
-			if m.tabNames()[m.tab] == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
+		case "x", " ":
+			active := m.tabNames()[m.tab]
+			if active == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo toggled"
+			}
+			if active == "Habits" && len(m.db.Habits) > 0 {
+				i := m.habitCursor
+				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
+				_ = store.Save(m.dataDir, m.db)
+				m.status = "habit toggled"
 			}
 		case "f":
 			if m.tabNames()[m.tab] == "Todos" {
@@ -603,13 +610,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo created from PR"
-			}
-		case " ":
-			if m.tabNames()[m.tab] == "Habits" && len(m.db.Habits) > 0 {
-				i := m.habitCursor
-				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
-				_ = store.Save(m.dataDir, m.db)
-				m.status = "habit toggled"
 			}
 		case "[":
 			if m.tabNames()[m.tab] == "GitHub" && m.ghSection > 0 {
@@ -849,7 +849,7 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Calendar":
 		return "n/p: month | T: today"
 	case "Todos":
-		return "x: toggle | f: filter"
+		return "x/space: toggle | f: filter"
 	case "Journal":
 		return "a: add | e: edit | w: this week"
 	case "Notes":
@@ -857,7 +857,7 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "GitHub":
 		return "[:] sections | Enter: open | t: todo"
 	case "Habits":
-		return "space: toggle"
+		return "x/space: toggle"
 	default:
 		return ""
 	}
