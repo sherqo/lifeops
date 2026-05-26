@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -97,6 +98,7 @@ type model struct {
 	weather       []string
 	customTabs    map[string][]string
 	weatherLine   string
+	homeEvents    []string
 	dashStatsReady bool
 	dashOpen       int
 	dashDone       int
@@ -148,6 +150,7 @@ type dashboardStatsMsg struct {
 }
 
 type weatherLineMsg struct{ line string }
+type homeEventsMsg struct{ lines []string }
 
 type ghPR struct {
 	Number int    `json:"number"`
@@ -367,6 +370,7 @@ func (m model) Init() tea.Cmd {
 		loadGitHub(),
 	)
 	cmds = append(cmds, loadWeather())
+	cmds = append(cmds, loadHomeEvents(m.calendarICS))
 	for _, t := range resolveTabs(m.cfg) {
 		if t.Type == "command" {
 			cmds = append(cmds, loadCustomTab(t.Name, t.Command))
@@ -640,7 +644,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fastRefreshMsg:
 		return m, tea.Batch(loadDashboardWithStats(m.db), loadTodos(m.db), tickFast())
 	case slowRefreshMsg:
-		return m, tea.Batch(loadWeather(), tickSlow())
+		return m, tea.Batch(loadWeather(), loadHomeEvents(m.calendarICS), tickSlow())
 	case verySlowRefreshMsg:
 		return m, tickVerySlow()
 	case customRefreshMsg:
@@ -685,6 +689,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "dashboard updated"
 	case weatherLineMsg:
 		m.weatherLine = t.line
+		if m.dashStatsReady {
+			m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
+				openTodos:  m.dashOpen,
+				doneTodos:  m.dashDone,
+				habitsDone: m.dashHabitsDone,
+				habitsTotal: m.dashHabitsTotal,
+			})
+		}
+	case homeEventsMsg:
+		m.homeEvents = t.lines
 		if m.dashStatsReady {
 			m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
 				openTodos:  m.dashOpen,
@@ -1240,26 +1254,32 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 	now := time.Now()
 	host, _ := os.Hostname()
 	
-	lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
+	lines = append(lines, header.Render(now.Format("15:04"))+" "+subtext.Render(now.Format("Monday, January 2, 2006")))
 	if m.weatherLine != "" {
 		lines = append(lines, m.weatherLine)
+	}
+	if len(m.homeEvents) > 0 {
+		lines = append(lines, subtext.Render("Next 3 days:"))
+		for _, ev := range m.homeEvents {
+			lines = append(lines, ev)
+		}
 	}
 	lines = append(lines, divider.Render(""))
 	
 	lines = append(lines, header.Render("Machine"))
 	osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-	lines = append(lines, normalItem.Render("Host: "+host+" • OS: "+osInfo))
-	
+	machineParts := []string{"Host: " + host, "OS: " + osInfo}
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
 		load := strings.TrimSpace(string(b))
 		parts := strings.Fields(load)
 		if len(parts) > 0 {
-			lines = append(lines, normalItem.Render("Load: "+parts[0]))
+			machineParts = append(machineParts, "Load: "+parts[0])
 		}
 	}
 	if mem, err := parseMem(); err == nil {
-		lines = append(lines, normalItem.Render(fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1])))
+		machineParts = append(machineParts, fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1]))
 	}
+	lines = append(lines, normalItem.Render(strings.Join(machineParts, " • ")))
 	lines = append(lines, divider.Render(""))
 	
 	lines = append(lines, header.Render("Stats"))
@@ -1353,6 +1373,103 @@ func loadGoogleEvents(month time.Time, feeds []string) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+func loadHomeEvents(feeds []string) tea.Cmd {
+	return func() tea.Msg {
+		if len(feeds) == 0 {
+			return homeEventsMsg{lines: nil}
+		}
+		start := time.Now()
+		end := start.AddDate(0, 0, 4)
+		events := collectUpcomingEvents(feeds, start, end, 6)
+		if len(events) == 0 {
+			return homeEventsMsg{lines: []string{subtext.Render("- No upcoming events")}}
+		}
+		var lines []string
+		for _, e := range events {
+			lines = append(lines, normalItem.Render("- "+e.start.Format("Mon 15:04")+" ")+subtext.Render(e.summary))
+		}
+		return homeEventsMsg{lines: lines}
+	}
+}
+
+type calEvent struct {
+	start   time.Time
+	summary string
+}
+
+func collectUpcomingEvents(feeds []string, start, end time.Time, limit int) []calEvent {
+	var out []calEvent
+	for _, feed := range feeds {
+		res, err := http.Get(feed)
+		if err != nil {
+			continue
+		}
+		raw, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			continue
+		}
+		out = append(out, parseICSRange(string(raw), start, end)...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].start.Before(out[j].start) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func parseICSRange(ics string, start, end time.Time) []calEvent {
+	lines := strings.Split(ics, "\n")
+	var out []calEvent
+	inEvent := false
+	var dt string
+	var summary string
+
+	flush := func() {
+		if dt == "" || summary == "" {
+			return
+		}
+		t, err := parseICSTime(dt)
+		if err != nil {
+			return
+		}
+		if !t.Before(start) && t.Before(end) {
+			out = append(out, calEvent{start: t, summary: summary})
+		}
+	}
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		switch line {
+		case "BEGIN:VEVENT":
+			inEvent = true
+			dt = ""
+			summary = ""
+			continue
+		case "END:VEVENT":
+			if inEvent {
+				flush()
+			}
+			inEvent = false
+			continue
+		}
+		if !inEvent {
+			continue
+		}
+		if strings.HasPrefix(line, "DTSTART") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				dt = parts[1]
+			}
+		}
+		if strings.HasPrefix(line, "SUMMARY:") {
+			summary = strings.TrimPrefix(line, "SUMMARY:")
+		}
+	}
+
+	return out
 }
 
 func loadICSEvents(url string, month time.Time) []string {
@@ -1452,7 +1569,7 @@ func loadWeather() tea.Cmd {
 		req, _ := http.NewRequest(http.MethodGet, "https://wttr.in/Cairo?format=j1", nil)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return loadedMsg{tab: "Weather", lines: []string{"Weather unavailable", err.Error()}}
+			return weatherLineMsg{line: subtext.Render("Weather unavailable")}
 		}
 		defer res.Body.Close()
 		raw, _ := io.ReadAll(res.Body)
@@ -1475,7 +1592,7 @@ func loadWeather() tea.Cmd {
 			} `json:"current_condition"`
 		}
 		if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Current) == 0 {
-			return loadedMsg{tab: "Weather", lines: []string{"Could not decode weather data"}}
+			return weatherLineMsg{line: subtext.Render("Weather unavailable")}
 		}
 		c := payload.Current[0]
 		d := ""
