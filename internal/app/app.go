@@ -53,7 +53,7 @@ var (
 	docStyle          = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
-var tabs = []string{"Home", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "ASU", "Habits"}
+var defaultTabs = []string{"Home", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "Habits"}
 
 type mode int
 
@@ -91,16 +91,29 @@ type model struct {
 	calMonth      time.Time
 	calendarICS   []string
 	weather       []string
-	asu           []string
+	customTabs    map[string][]string
 	habitCursor   int
 	journalCursor int
 	notesCursor  int
+}
+
+func (m model) tabNames() []string {
+	resolved := resolveTabs(m.cfg)
+	if len(resolved) == 0 {
+		return defaultTabs
+	}
+	list := make([]string, 0, len(resolved))
+	for _, t := range resolved {
+		list = append(list, t.Name)
+	}
+	return list
 }
 
 type refreshMsg struct{}
 type fastRefreshMsg struct{}    // 1 minute - dashboard, todos
 type slowRefreshMsg struct{}     // 10 minutes - weather, github
 type verySlowRefreshMsg struct{} // 1 hour - asu
+type customRefreshMsg struct{ name string }
 type loadedMsg struct {
 	tab   string
 	lines []string
@@ -213,6 +226,14 @@ func (r ghIssueRaw) toGhIssue() ghIssue {
 
 var defaultCalendarICS []string
 
+type resolvedTab struct {
+	Name           string
+	Type           string
+	Command        []string
+	RefreshMinutes int
+	Hint           string
+}
+
 func Run() error {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -237,6 +258,8 @@ func Run() error {
 		calendarICS = defaultCalendarICS
 	}
 
+	resolved := resolveTabs(cfg)
+
 	in := textinput.New()
 	in.Placeholder = "Type and press Enter"
 	in.Prompt = "> "
@@ -244,29 +267,90 @@ func Run() error {
 	cmd.Placeholder = "q | refresh | tab <name> | set-journal <path>"
 	cmd.Prompt = ":"
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, command: cmd, status: "q quit | : command | ? help", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}}
+	for _, tab := range resolved {
+		if tab.Type == "command" {
+			m.customTabs[tab.Name] = []string{"Loading..."}
+		}
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
 
+func resolveTabs(cfg *config.Config) []resolvedTab {
+	var out []resolvedTab
+	seen := map[string]bool{}
+
+	if len(cfg.Tabs) == 0 {
+		for _, name := range defaultTabs {
+			out = append(out, resolvedTab{Name: name, Type: "builtin"})
+			seen[strings.ToLower(name)] = true
+		}
+		return out
+	}
+
+	for _, t := range cfg.Tabs {
+		name := strings.TrimSpace(t.Name)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		typeVal := strings.TrimSpace(strings.ToLower(t.Type))
+		if typeVal == "" {
+			typeVal = "builtin"
+		}
+		if typeVal == "command" && len(t.Command) == 0 {
+			continue
+		}
+		out = append(out, resolvedTab{
+			Name:           name,
+			Type:           typeVal,
+			Command:        t.Command,
+			RefreshMinutes: t.RefreshMinutes,
+			Hint:           t.Hint,
+		})
+	}
+
+	return out
+}
+
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		tickFast(),
-		tickSlow(),
-		tickVerySlow(),
+	var cmds []tea.Cmd
+	cmds = append(cmds, tickFast(), tickSlow(), tickVerySlow())
+	cmds = append(cmds,
 		loadDashboardWithStats(m.db),
 		loadTodos(m.db),
 		loadCalendar(m.calMonth, m.calendarICS),
 		loadWeather(),
 		loadGitHub(),
-		loadASU(),
 	)
+	for _, t := range resolveTabs(m.cfg) {
+		if t.Type == "command" {
+			cmds = append(cmds, loadCustomTab(t.Name, t.Command))
+			if t.RefreshMinutes > 0 {
+				cmds = append(cmds, customTick(t.Name, t.RefreshMinutes))
+			}
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickFast() tea.Cmd  { return tea.Tick(1*time.Minute, func(time.Time) tea.Msg { return fastRefreshMsg{} }) }
 func tickSlow() tea.Cmd  { return tea.Tick(30*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} }) }
 func tickVerySlow() tea.Cmd { return tea.Tick(1*time.Hour, func(time.Time) tea.Msg { return verySlowRefreshMsg{} }) }
+
+func customTick(name string, minutes int) tea.Cmd {
+	if minutes <= 0 {
+		return nil
+	}
+	return tea.Tick(time.Duration(minutes)*time.Minute, func(time.Time) tea.Msg { return customRefreshMsg{name: name} })
+}
 
 func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd {
 	switch tab {
@@ -278,8 +362,6 @@ func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd 
 		return loadWeather()
 	case "GitHub":
 		return loadGitHub()
-	case "ASU":
-		return loadASU()
 	case "Todos":
 		return loadTodos(db)
 	default:
@@ -288,7 +370,7 @@ func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd 
 }
 
 func loadAll(db *store.DB, month time.Time, feeds []string) tea.Cmd {
-	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadWeather(), loadGitHub(), loadASU(), loadTodos(db))
+	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadWeather(), loadGitHub(), loadTodos(db))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -310,7 +392,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if text == "" {
 					return m, nil
 				}
-				switch tabs[m.tab] {
+				active := m.tabNames()[m.tab]
+				switch active {
 				case "Todos":
 					store.AddTodo(m.db, text)
 					_ = store.Save(m.dataDir, m.db)
@@ -371,46 +454,60 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "h":
 			if m.tab > 0 {
 				m.tab--
+				tabs := m.tabNames()
 				return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 			}
 		case "l":
-			if m.tab < len(tabs)-1 {
+			if m.tab < len(m.tabNames())-1 {
 				m.tab++
+				tabs := m.tabNames()
 				return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 			}
-		case "r":
-			m.status = "refreshing..."
-			return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
+	case "r":
+		m.status = "refreshing..."
+		tabs := m.tabNames()
+		active := tabs[m.tab]
+		if cmd := loadTab(active, m.db, m.calMonth, m.calendarICS); cmd != nil {
+			return m, cmd
+		}
+		for _, t := range resolveTabs(m.cfg) {
+			if t.Type == "command" && strings.EqualFold(t.Name, active) {
+				return m, loadCustomTab(t.Name, t.Command)
+			}
+		}
+		return m, nil
 		case "n":
-			if tabs[m.tab] == "Calendar" {
+			if m.tabNames()[m.tab] == "Calendar" {
 				m.calMonth = m.calMonth.AddDate(0, 1, 0)
 				m.status = "calendar next month"
 				return m, loadCalendar(m.calMonth, m.calendarICS)
 			}
 		case "p":
-			if tabs[m.tab] == "Calendar" {
+			if m.tabNames()[m.tab] == "Calendar" {
 				m.calMonth = m.calMonth.AddDate(0, -1, 0)
 				m.status = "calendar previous month"
 				return m, loadCalendar(m.calMonth, m.calendarICS)
 			}
 		case "T":
-			if tabs[m.tab] == "Calendar" {
+			if m.tabNames()[m.tab] == "Calendar" {
 				m.calMonth = firstOfMonth(time.Now())
 				m.status = "calendar current month"
 				return m, loadCalendar(m.calMonth, m.calendarICS)
 			}
 		case "a":
-			if tabs[m.tab] == "Todos" || tabs[m.tab] == "Notes" || tabs[m.tab] == "Journal" {
+			active := m.tabNames()[m.tab]
+			if active == "Todos" || active == "Notes" || active == "Journal" {
 				m.mode = modeInput
 				m.input.Focus()
 				m.status = "enter text and press Enter"
 			}
 		case "e":
-			if tabs[m.tab] == "Journal" {
+			active := m.tabNames()[m.tab]
+			if active == "Journal" {
 				m.status = "opening journal in editor"
 				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
 			}
-			if tabs[m.tab] == "Notes" {
+			if active == "Notes" {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
@@ -419,26 +516,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k":
 			m = moveUp(m)
 		case "x":
-			if tabs[m.tab] == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
+			if m.tabNames()[m.tab] == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo toggled"
 			}
 		case "f":
-			if tabs[m.tab] == "Todos" {
+			if m.tabNames()[m.tab] == "Todos" {
 				m.todoFilter = store.NextFilter(m.todoFilter)
 				m.todoCursor = 0
 				m.status = "todo filter: " + store.FilterLabel(m.todoFilter)
 			}
 		case "o", "enter":
-			if tabs[m.tab] == "Journal" {
+			active := m.tabNames()[m.tab]
+			if active == "Journal" {
 				m.status = "opening journal in editor"
 				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
 			}
-			if tabs[m.tab] == "Notes" {
+			if active == "Notes" {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
-			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
+			if active == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				if pr.URL != "" {
 					m.status = "PR URL: " + pr.URL
@@ -446,27 +544,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "no PR URL available"
 				}
 			}
+			for _, t := range resolveTabs(m.cfg) {
+				if t.Type == "command" && strings.EqualFold(t.Name, active) {
+					m.status = "running command..."
+					return m, loadCustomTab(t.Name, t.Command)
+				}
+			}
 		case "t":
-			if tabs[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
+			if m.tabNames()[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo created from PR"
 			}
 		case " ":
-			if tabs[m.tab] == "Habits" && len(m.db.Habits) > 0 {
+			if m.tabNames()[m.tab] == "Habits" && len(m.db.Habits) > 0 {
 				i := m.habitCursor
 				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "habit toggled"
 			}
 		case "[":
-			if tabs[m.tab] == "GitHub" && m.ghSection > 0 {
+			if m.tabNames()[m.tab] == "GitHub" && m.ghSection > 0 {
 				m.ghSection--
 				m.ghCursor = 0
 			}
 		case "]":
-			if tabs[m.tab] == "GitHub" && m.ghSection < 3 {
+			if m.tabNames()[m.tab] == "GitHub" && m.ghSection < 3 {
 				m.ghSection++
 				m.ghCursor = 0
 			}
@@ -476,7 +580,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case slowRefreshMsg:
 		return m, tea.Batch(loadWeather(), tickSlow())
 	case verySlowRefreshMsg:
-		return m, tea.Batch(loadASU(), tickVerySlow())
+		return m, tickVerySlow()
+	case customRefreshMsg:
+		for _, tab := range resolveTabs(m.cfg) {
+			if tab.Type == "command" && strings.EqualFold(tab.Name, t.name) {
+				return m, tea.Batch(loadCustomTab(tab.Name, tab.Command), customTick(tab.Name, tab.RefreshMinutes))
+			}
+		}
+		return m, nil
 	case loadedMsg:
 		if t.tab == "Dashboard" {
 			m.dashboard = t.lines
@@ -487,8 +598,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if t.tab == "Weather" {
 			m.weather = t.lines
 		}
-		if t.tab == "ASU" {
-			m.asu = t.lines
+		if _, ok := m.customTabs[t.tab]; ok {
+			m.customTabs[t.tab] = t.lines
 		}
 	case githubLoadedMsg:
 		m.githubPRs = t.prs
@@ -517,14 +628,28 @@ func runCommand(m *model, c string) tea.Cmd {
 	case "q":
 		return tea.Quit
 	case "refresh":
-		return loadAll(m.db, m.calMonth, m.calendarICS)
+		cmds := []tea.Cmd{loadAll(m.db, m.calMonth, m.calendarICS)}
+		for _, t := range resolveTabs(m.cfg) {
+			if t.Type == "command" {
+				cmds = append(cmds, loadCustomTab(t.Name, t.Command))
+			}
+		}
+		return tea.Batch(cmds...)
 	case "tab":
 		if len(parts) > 1 {
 			name := strings.ToLower(strings.Join(parts[1:], " "))
-			for i, t := range tabs {
+			for i, t := range m.tabNames() {
 				if strings.ToLower(t) == name {
 					m.tab = i
-					break
+					if cmd := loadTab(t, m.db, m.calMonth, m.calendarICS); cmd != nil {
+						return cmd
+					}
+					for _, ct := range resolveTabs(m.cfg) {
+						if ct.Type == "command" && strings.EqualFold(ct.Name, t) {
+							return loadCustomTab(ct.Name, ct.Command)
+						}
+					}
+					return nil
 				}
 			}
 		}
@@ -562,7 +687,7 @@ func runCommand(m *model, c string) tea.Cmd {
 }
 
 func moveDown(m model) model {
-	if tabs[m.tab] == "GitHub" {
+	if m.tabNames()[m.tab] == "GitHub" {
 		var max int
 		switch m.ghSection {
 		case 0:
@@ -578,22 +703,22 @@ func moveDown(m model) model {
 			m.ghCursor++
 		}
 	}
-	if tabs[m.tab] == "Todos" {
+	if m.tabNames()[m.tab] == "Todos" {
 		n := len(store.VisibleTodoIndices(m.db, m.todoFilter))
 		if m.todoCursor < n-1 {
 			m.todoCursor++
 		}
 	}
-	if tabs[m.tab] == "Habits" && m.habitCursor < len(m.db.Habits)-1 {
+	if m.tabNames()[m.tab] == "Habits" && m.habitCursor < len(m.db.Habits)-1 {
 		m.habitCursor++
 	}
-	if tabs[m.tab] == "Journal" {
+	if m.tabNames()[m.tab] == "Journal" {
 		n := len(journalFilesForDisplay(m.journalDir))
 		if m.journalCursor < n-1 {
 			m.journalCursor++
 		}
 	}
-	if tabs[m.tab] == "Notes" {
+	if m.tabNames()[m.tab] == "Notes" {
 		n := len(notesFilesForDisplay(m.notesDir))
 		if m.notesCursor < n-1 {
 			m.notesCursor++
@@ -603,19 +728,19 @@ func moveDown(m model) model {
 }
 
 func moveUp(m model) model {
-	if tabs[m.tab] == "GitHub" && m.ghCursor > 0 {
+	if m.tabNames()[m.tab] == "GitHub" && m.ghCursor > 0 {
 		m.ghCursor--
 	}
-	if tabs[m.tab] == "Todos" && m.todoCursor > 0 {
+	if m.tabNames()[m.tab] == "Todos" && m.todoCursor > 0 {
 		m.todoCursor--
 	}
-	if tabs[m.tab] == "Habits" && m.habitCursor > 0 {
+	if m.tabNames()[m.tab] == "Habits" && m.habitCursor > 0 {
 		m.habitCursor--
 	}
-	if tabs[m.tab] == "Journal" && m.journalCursor > 0 {
+	if m.tabNames()[m.tab] == "Journal" && m.journalCursor > 0 {
 		m.journalCursor--
 	}
-	if tabs[m.tab] == "Notes" && m.notesCursor > 0 {
+	if m.tabNames()[m.tab] == "Notes" && m.notesCursor > 0 {
 		m.notesCursor--
 	}
 	return m
@@ -624,7 +749,8 @@ func moveUp(m model) model {
 func (m model) View() string {
 	// Colored tabs - active with brackets and color
 	var tabBar string
-	for i, t := range tabs {
+	resolvedTabs := m.tabNames()
+	for i, t := range resolvedTabs {
 		if i == m.tab {
 			tabBar += tabActive.Render("["+t+"]") + " "
 		} else {
@@ -646,17 +772,8 @@ func (m model) View() string {
 	dividerStr := divider.Render(strings.Repeat("─", max(20, m.width-2)))
 
 	// Tab-specific hints
-	tabHints := map[string]string{
-		"Calendar": "n/p: month | T: today",
-		"Todos":    "x: toggle | f: filter",
-		"Journal":  "a: add | e: edit",
-		"Notes":    "a: add | e: edit",
-		"GitHub":   "[:] sections | Enter: open | t: todo",
-		"Habits":   "space: toggle",
-		"ASU":      "o: open",
-	}
 	hint := ""
-	if h, ok := tabHints[tabs[m.tab]]; ok {
+	if h := lookupTabHint(m.cfg, resolvedTabs[m.tab]); h != "" {
 		hint = subtext.Render(h) + "\n"
 	}
 
@@ -681,7 +798,8 @@ func (m model) View() string {
 }
 
 func (m model) currentTab() []string {
-	switch tabs[m.tab] {
+	active := m.tabNames()[m.tab]
+	switch active {
 	case "Home":
 		return m.dashboard
 	case "Calendar":
@@ -696,10 +814,55 @@ func (m model) currentTab() []string {
 		return renderNotes(m.notesDir, m.notesCursor)
 	case "GitHub":
 		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.ghSection, m.ghCursor, m.githubErr)
-	case "ASU":
-		return m.asu
 	default:
+		if lines, ok := m.customTabs[active]; ok {
+			return lines
+		}
 		return renderHabits(m.db.Habits, m.habitCursor)
+	}
+}
+
+func lookupTabHint(cfg *config.Config, name string) string {
+	if cfg == nil {
+		return ""
+	}
+	for _, t := range cfg.Tabs {
+		if strings.EqualFold(t.Name, name) && t.Hint != "" {
+			return t.Hint
+		}
+	}
+	switch name {
+	case "Calendar":
+		return "n/p: month | T: today"
+	case "Todos":
+		return "x: toggle | f: filter"
+	case "Journal":
+		return "a: add | e: edit"
+	case "Notes":
+		return "a: add | e: edit"
+	case "GitHub":
+		return "[:] sections | Enter: open | t: todo"
+	case "Habits":
+		return "space: toggle"
+	default:
+		return ""
+	}
+}
+
+func loadCustomTab(name string, cmd []string) tea.Cmd {
+	return func() tea.Msg {
+		if len(cmd) == 0 {
+			return loadedMsg{tab: name, lines: []string{"No command configured"}}
+		}
+		out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
+		if err != nil {
+			return loadedMsg{tab: name, lines: []string{"Command failed:", err.Error(), trimLong(string(out), 40)}}
+		}
+		lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
+			lines = []string{"No output"}
+		}
+		return loadedMsg{tab: name, lines: lines}
 	}
 }
 
@@ -1351,55 +1514,6 @@ func loadGitHub() tea.Cmd {
 	}
 }
 
-func loadASU() tea.Cmd {
-	return func() tea.Msg {
-		bin := asuBinaryPath()
-		if _, err := os.Stat(bin); err != nil {
-			return loadedMsg{tab: "ASU", lines: []string{"ASU binary not found", "Expected at " + bin}}
-		}
-		who := run(bin, "whoami")
-		raw := run(bin, "courses", "--json")
-		lines := []string{"Profile:", trimLong(who, 18), "", "Courses:"}
-		var payload struct {
-			Studies []struct {
-				Code          string `json:"code"`
-				Name          string `json:"en_name"`
-				GradesDetails []struct {
-					Name      string  `json:"en_name"`
-					Degree    float64 `json:"degree"`
-					MaxDegree float64 `json:"max_degree"`
-				} `json:"grades_detailes"`
-			} `json:"studies"`
-		}
-		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-			courses := run(bin, "courses")
-			lines = append(lines, trimLong(courses, 30))
-			return loadedMsg{tab: "ASU", lines: lines}
-		}
-		for _, s := range payload.Studies {
-			if s.Code == "" && s.Name == "" {
-				continue
-			}
-			lines = append(lines, header.Render(s.Code+" - "+s.Name))
-			if len(s.GradesDetails) == 0 {
-				lines = append(lines, subtext.Render("No grades yet"))
-				continue
-			}
-			var parts []string
-			for _, g := range s.GradesDetails {
-				if g.Name == "" {
-					continue
-				}
-				parts = append(parts, fmt.Sprintf("%s: %.0f/%.0f", g.Name, g.Degree, g.MaxDegree))
-			}
-			if len(parts) > 0 {
-				lines = append(lines, normalItem.Render(strings.Join(parts, " | ")))
-			}
-			lines = append(lines, "")
-		}
-		return loadedMsg{tab: "ASU", lines: lines}
-	}
-}
 
 func openInEditorCmd(path string) tea.Cmd {
 	return tea.ExecProcess(editorCommand(path), func(err error) tea.Msg { return nil })
@@ -1437,12 +1551,6 @@ func trimLong(s string, maxLines int) string {
 	return strings.Join(parts[:maxLines], "\n") + "\n..."
 }
 
-func asuBinaryPath() string {
-	if v := strings.TrimSpace(os.Getenv("LIFEOPS_ASU_BIN")); v != "" {
-		return v
-	}
-	return "/home/sherqo/ac/go/eng-asu/asu"
-}
 
 func run(cmd string, args ...string) string {
 	out, err := exec.Command(cmd, args...).CombinedOutput()

@@ -13,6 +13,15 @@ type Config struct {
 	NotesDir    string   `json:"notes_dir"`
 	JournalDir  string   `json:"journal_dir"`
 	CalendarICS []string `json:"calendar_ics_urls"`
+	Tabs        []Tab    `json:"tabs"`
+}
+
+type Tab struct {
+	Name           string   `json:"name"`
+	Type           string   `json:"type"`
+	Command        []string `json:"command"`
+	RefreshMinutes int      `json:"refresh_minutes"`
+	Hint           string   `json:"hint"`
 }
 
 func Load(dataDir string) (*Config, error) {

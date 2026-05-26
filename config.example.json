@@ -4,5 +4,22 @@
   "calendar_ics_urls": [
     "https://calendar.google.com/calendar/ical/your-private-calendar/basic.ics",
     "https://calendar.google.com/calendar/ical/your-other-calendar/basic.ics"
+  ],
+  "tabs": [
+    { "name": "Home", "type": "builtin" },
+    { "name": "Calendar", "type": "builtin" },
+    { "name": "Weather", "type": "builtin" },
+    { "name": "Todos", "type": "builtin" },
+    { "name": "Journal", "type": "builtin" },
+    { "name": "Notes", "type": "builtin" },
+    { "name": "GitHub", "type": "builtin" },
+    { "name": "Habits", "type": "builtin" },
+    {
+      "name": "ASU",
+      "type": "command",
+      "command": ["/home/sherqo/ac/go/eng-asu/asu", "courses"],
+      "refresh_minutes": 60,
+      "hint": "Enter: open"
+    }
   ]
 }
