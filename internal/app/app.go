@@ -543,8 +543,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			active := m.tabNames()[m.tab]
 			if active == "Journal" {
+				path := selectedJournalPath(m.journalDir, m.journalCursor)
+				if path == "" {
+					m.status = "no journal files - press 'a' or 'w'"
+					return m, nil
+				}
 				m.status = "opening journal in editor"
-				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
+				return m, openInEditorCmd(path)
 			}
 			if active == "Notes" {
 				m.status = "opening notes in editor"
@@ -574,8 +579,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o", "enter":
 			active := m.tabNames()[m.tab]
 			if active == "Journal" {
+				path := selectedJournalPath(m.journalDir, m.journalCursor)
+				if path == "" {
+					m.status = "no journal files - press 'a' or 'w'"
+					return m, nil
+				}
 				m.status = "opening journal in editor"
-				return m, openInEditorCmd(selectedJournalPath(m.journalDir, m.journalCursor))
+				return m, openInEditorCmd(path)
 			}
 			if active == "Notes" {
 				m.status = "opening notes in editor"
@@ -1004,25 +1014,13 @@ func renderJournal(journalDir string, cursor int) []string {
 }
 
 func journalFilesForDisplay(journalDir string) []string {
-	files := content.RecentJournalFiles(journalDir)
-	today := journalTodayPath(journalDir)
-	hasToday := false
-	for _, f := range files {
-		if f == today {
-			hasToday = true
-			break
-		}
-	}
-	if !hasToday {
-		files = append([]string{today}, files...)
-	}
-	return files
+	return content.RecentJournalFiles(journalDir)
 }
 
 func selectedJournalPath(journalDir string, cursor int) string {
 	files := journalFilesForDisplay(journalDir)
 	if len(files) == 0 {
-		return journalTodayPath(journalDir)
+		return ""
 	}
 	if cursor < 0 {
 		cursor = 0
@@ -1793,10 +1791,6 @@ func editorCommand(path string) *exec.Cmd {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd
-}
-
-func journalTodayPath(journalDir string) string {
-	return journalDir + "/" + time.Now().Format("2006-01-02") + ".md"
 }
 
 func notesInboxPath(notesDir string) string {

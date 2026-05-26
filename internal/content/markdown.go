@@ -130,6 +130,17 @@ func RecentJournalFiles(journalDir string) []string {
 	})
 
 	sort.Slice(files, func(i, j int) bool {
+		wi, oki := weekNumberFromFileName(filepath.Base(files[i].path))
+		wj, okj := weekNumberFromFileName(filepath.Base(files[j].path))
+		if oki && okj {
+			if wi != wj {
+				return wi > wj
+			}
+			return files[i].modTime.After(files[j].modTime)
+		}
+		if oki != okj {
+			return oki
+		}
 		return files[i].modTime.After(files[j].modTime)
 	})
 
@@ -142,6 +153,29 @@ func RecentJournalFiles(journalDir string) []string {
 		out = append(out, f.path)
 	}
 	return out
+}
+
+func weekNumberFromFileName(name string) (int, bool) {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	lower = strings.TrimSuffix(lower, filepath.Ext(lower))
+	if !strings.HasPrefix(lower, "week-") {
+		return 0, false
+	}
+	rest := lower[len("week-"):]
+	if rest == "" {
+		return 0, false
+	}
+	n := 0
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	if n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 func RecentNotesFiles(notesDir string) []string {
