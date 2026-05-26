@@ -1023,7 +1023,6 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 
 	sectionNames := []string{"My PRs", "Repositories", "Reviews", "Issues", "Account"}
 	lines = append(lines, header.Render(sectionNames[section]))
-	lines = append(lines, subtext.Render("Use [ and ] to switch sections"))
 	lines = append(lines, "")
 
 	if errMsg != "" {
