@@ -770,7 +770,7 @@ func (m model) View() string {
 	// Build body content - plain text
 	body := strings.Join(m.currentTab(), "\n")
 	if m.height > 0 {
-		maxBody := m.height - 7 // tabs, divider, hint, controls, status
+		maxBody := m.height - 6 // tabs, divider, controls, status
 		if maxBody < 5 {
 			maxBody = 5
 		}
@@ -787,21 +787,15 @@ func (m model) View() string {
 	// Divider line with color
 	dividerStr := divider.Render(strings.Repeat("─", max(20, m.width-2)))
 
-	// Tab-specific hints
-	hint := ""
-	if h := lookupTabHint(m.cfg, resolvedTabs[m.tab]); h != "" {
-		hint = subtext.Render(h) + "\n"
-	}
-
-	// General controls at bottom
-	controls := subtext.Render("h/l: tabs | j/k: move | r: refresh | ?: help | q: quit")
+	// Single-line controls: general + tab-specific
+	controls := subtext.Render(buildControlsLine(m.cfg, resolvedTabs[m.tab]))
 	status := statusBar.Render(" " + m.status)
 
 	// Padding to push controls to bottom
 	padding := ""
 	if m.height > 0 {
 		lines := strings.Count(body, "\n") + 1
-		need := m.height - lines - 5 // +1 for hint
+		need := m.height - lines - 4
 		if need > 0 {
 			padding = strings.Repeat("\n", need)
 		}
@@ -809,7 +803,7 @@ func (m model) View() string {
 		padding = "\n\n"
 	}
 
-	view := tabBar + "\n" + dividerStr + "\n" + body + "\n" + padding + hint + controls + "\n" + status
+	view := tabBar + "\n" + dividerStr + "\n" + body + "\n" + padding + controls + "\n" + status
 	return view
 }
 
@@ -863,6 +857,15 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	}
 }
 
+func buildControlsLine(cfg *config.Config, name string) string {
+	base := "h/l: tabs | j/k: move | r: refresh | q: quit"
+	hint := lookupTabHint(cfg, name)
+	if strings.TrimSpace(hint) == "" {
+		return base
+	}
+	return base + " | " + hint
+}
+
 func loadCustomTab(name string, cmd []string) tea.Cmd {
 	return func() tea.Msg {
 		if len(cmd) == 0 {
@@ -886,7 +889,7 @@ func renderJournal(journalDir string, cursor int) []string {
 
 	if _, err := os.Stat(journalDir); os.IsNotExist(err) {
 		lines = append(lines, errorText.Render("ERROR: Journal directory does not exist: "+journalDir))
-		lines = append(lines, subtext.Render("Use :set-journal <path> to set a valid path"))
+		lines = append(lines, subtext.Render("Set journal_dir in ~/.config/lifeops/config.json"))
 	} else {
 		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
 	}
