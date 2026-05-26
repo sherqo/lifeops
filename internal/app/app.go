@@ -550,6 +550,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
+		case "w":
+			if m.tabNames()[m.tab] == "Journal" {
+				_ = os.MkdirAll(m.journalDir, 0o755)
+				m.status = "opening current week journal"
+				return m, openInEditorCmd(currentWeekJournalPath(m.journalDir))
+			}
 		case "j":
 			m = moveDown(m)
 		case "k":
@@ -941,7 +947,7 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Todos":
 		return "x: toggle | f: filter"
 	case "Journal":
-		return "a: add | e: edit"
+		return "a: add | e: edit | w: this week"
 	case "Notes":
 		return "a: add | e: edit"
 	case "GitHub":
@@ -1794,6 +1800,17 @@ func journalTodayPath(journalDir string) string {
 
 func notesInboxPath(notesDir string) string {
 	return notesDir + "/inbox.md"
+}
+
+func currentWeekJournalPath(journalDir string) string {
+	isoYear, isoWeek := time.Now().ISOWeek()
+	prefix := fmt.Sprintf("week-%02d", isoWeek)
+	matches, _ := filepath.Glob(filepath.Join(journalDir, prefix+"*"))
+	if len(matches) > 0 {
+		sort.Strings(matches)
+		return matches[0]
+	}
+	return filepath.Join(journalDir, fmt.Sprintf("%s-%d.md", prefix, isoYear))
 }
 
 func trimLong(s string, maxLines int) string {
