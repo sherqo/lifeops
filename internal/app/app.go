@@ -53,7 +53,7 @@ var (
 	docStyle          = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
-var defaultTabs = []string{"Home", "Journal", "Calendar", "Weather", "Todos", "Notes", "GitHub", "Habits"}
+var defaultTabs = []string{"Home", "Journal", "Calendar", "Todos", "Notes", "GitHub", "Habits"}
 
 type mode int
 
@@ -335,9 +335,9 @@ func (m model) Init() tea.Cmd {
 		loadDashboardWithStats(m.db),
 		loadTodos(m.db),
 		loadCalendar(m.calMonth, m.calendarICS),
-		loadWeather(),
 		loadGitHub(),
 	)
+	cmds = append(cmds, loadWeather())
 	for _, t := range resolveTabs(m.cfg) {
 		if t.Type == "command" {
 			cmds = append(cmds, loadCustomTab(t.Name, t.Command))
@@ -366,8 +366,6 @@ func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd 
 		return loadDashboardWithStats(db)
 	case "Calendar":
 		return loadCalendar(month, feeds)
-	case "Weather":
-		return loadWeather()
 	case "GitHub":
 		return loadGitHub()
 	case "Todos":
@@ -378,7 +376,7 @@ func loadTab(tab string, db *store.DB, month time.Time, feeds []string) tea.Cmd 
 }
 
 func loadAll(db *store.DB, month time.Time, feeds []string) tea.Cmd {
-	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadWeather(), loadGitHub(), loadTodos(db))
+	return tea.Batch(loadDashboard(), loadCalendar(month, feeds), loadGitHub(), loadTodos(db))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -603,20 +601,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if t.tab == "Calendar" {
 			m.calendar = t.lines
 		}
-		if t.tab == "Weather" {
-			m.weather = t.lines
-			if len(t.lines) > 0 {
-				m.weatherLine = t.lines[0]
-				if m.dashStatsReady {
-					m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
-						openTodos:  m.dashOpen,
-						doneTodos:  m.dashDone,
-						habitsDone: m.dashHabitsDone,
-						habitsTotal: m.dashHabitsTotal,
-					})
-				}
-			}
-		}
 		if _, ok := m.customTabs[t.tab]; ok {
 			m.customTabs[t.tab] = t.lines
 		}
@@ -838,11 +822,6 @@ func (m model) currentTab() []string {
 		return m.dashboard
 	case "Calendar":
 		return m.calendar
-	case "Weather":
-		if m.weatherLine != "" {
-			return []string{m.weatherLine}
-		}
-		return []string{"Weather loading..."}
 	case "Todos":
 		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
@@ -1180,8 +1159,7 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 	
 	lines = append(lines, header.Render("Machine"))
 	osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-	lines = append(lines, normalItem.Render("Host: "+host))
-	lines = append(lines, normalItem.Render("OS: "+osInfo))
+	lines = append(lines, normalItem.Render("Host: "+host+" • OS: "+osInfo))
 	
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
 		load := strings.TrimSpace(string(b))
@@ -1245,7 +1223,7 @@ func renderMonth(month time.Time) []string {
 		d := time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, first.Location())
 		cell := fmt.Sprintf("%2d", day)
 		if d.Year() == today.Year() && d.YearDay() == today.YearDay() {
-			cell = "[" + fmt.Sprintf("%d", day) + "]"
+			cell = lipgloss.NewStyle().Foreground(lipgloss.Color("76")).Bold(true).Render(cell)
 		}
 		week = append(week, cell)
 		if len(week) == 7 {
