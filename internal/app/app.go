@@ -53,7 +53,7 @@ var (
 	docStyle          = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
-var defaultTabs = []string{"Home", "Calendar", "Weather", "Todos", "Journal", "Notes", "GitHub", "Habits"}
+var defaultTabs = []string{"Home", "Journal", "Calendar", "Weather", "Todos", "Notes", "GitHub", "Habits"}
 
 type mode int
 
@@ -92,6 +92,12 @@ type model struct {
 	calendarICS   []string
 	weather       []string
 	customTabs    map[string][]string
+	weatherLine   string
+	dashStatsReady bool
+	dashOpen       int
+	dashDone       int
+	dashHabitsDone int
+	dashHabitsTotal int
 	habitCursor   int
 	journalCursor int
 	notesCursor  int
@@ -132,6 +138,8 @@ type dashboardStatsMsg struct {
 	habitsDone int
 	habitsTotal int
 }
+
+type weatherLineMsg struct{ line string }
 
 type ghPR struct {
 	Number int    `json:"number"`
@@ -597,6 +605,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if t.tab == "Weather" {
 			m.weather = t.lines
+			if len(t.lines) > 0 {
+				m.weatherLine = t.lines[0]
+				if m.dashStatsReady {
+					m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
+						openTodos:  m.dashOpen,
+						doneTodos:  m.dashDone,
+						habitsDone: m.dashHabitsDone,
+						habitsTotal: m.dashHabitsTotal,
+					})
+				}
+			}
 		}
 		if _, ok := m.customTabs[t.tab]; ok {
 			m.customTabs[t.tab] = t.lines
@@ -613,8 +632,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case journalRefreshMsg:
 		m.status = "journal refreshed"
 	case dashboardStatsMsg:
-		m.dashboard = buildFullDashboard(t)
+		m.dashStatsReady = true
+		m.dashOpen = t.openTodos
+		m.dashDone = t.doneTodos
+		m.dashHabitsDone = t.habitsDone
+		m.dashHabitsTotal = t.habitsTotal
+		m.dashboard = buildDashboardWithWeather(m, t)
 		m.status = "dashboard updated"
+	case weatherLineMsg:
+		m.weatherLine = t.line
+		if m.dashStatsReady {
+			m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
+				openTodos:  m.dashOpen,
+				doneTodos:  m.dashDone,
+				habitsDone: m.dashHabitsDone,
+				habitsTotal: m.dashHabitsTotal,
+			})
+		}
 	}
 	return m, nil
 }
@@ -805,7 +839,10 @@ func (m model) currentTab() []string {
 	case "Calendar":
 		return m.calendar
 	case "Weather":
-		return m.weather
+		if m.weatherLine != "" {
+			return []string{m.weatherLine}
+		}
+		return []string{"Weather loading..."}
 	case "Todos":
 		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
@@ -1097,68 +1134,7 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 }
 
 func loadDashboardWithStats(db *store.DB) tea.Cmd {
-	return func() tea.Msg {
-		now := time.Now()
-		host, _ := os.Hostname()
-		
-		var lines []string
-		
-		// Header with date/time
-		lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
-		lines = append(lines, divider.Render(""))
-		
-		// Machine section
-		lines = append(lines, header.Render("Machine"))
-		osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-		lines = append(lines, normalItem.Render("Host: "+host))
-		lines = append(lines, normalItem.Render("OS: "+osInfo))
-		
-		if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-			load := strings.TrimSpace(string(b))
-			parts := strings.Fields(load)
-			if len(parts) > 0 {
-				lines = append(lines, normalItem.Render("Load: "+parts[0]))
-			}
-		}
-		if mem, err := parseMem(); err == nil {
-			lines = append(lines, normalItem.Render(fmt.Sprintf("Memory: %.1f/%.1f GiB", mem[0], mem[1])))
-		}
-		lines = append(lines, divider.Render(""))
-		
-		// Stats section - compute directly
-		lines = append(lines, header.Render("Stats"))
-		
-		openTodos, doneTodos := 0, 0
-		for _, t := range db.Todos {
-			if t.Completed {
-				doneTodos++
-			} else {
-				openTodos++
-			}
-		}
-		habitsDone := 0
-		for _, h := range db.Habits {
-			if h.Completed {
-				habitsDone++
-			}
-		}
-		
-		todoStr := fmt.Sprintf("Todos: %d open, %d done", openTodos, doneTodos)
-		todoColor := successText
-		if openTodos > 3 {
-			todoColor = errorText
-		}
-		lines = append(lines, todoColor.Render(todoStr))
-		
-		habitStr := fmt.Sprintf("Habits: %d/%d done", habitsDone, len(db.Habits))
-		habitColor := successText
-		if len(db.Habits) > 0 && habitsDone < len(db.Habits) {
-			habitColor = subtext
-		}
-		lines = append(lines, habitColor.Render(habitStr))
-		
-		return loadedMsg{tab: "Dashboard", lines: lines}
-	}
+	return loadDashboardStats(db)
 }
 
 func loadDashboard() tea.Cmd {
@@ -1191,12 +1167,15 @@ func loadDashboardStats(db *store.DB) tea.Cmd {
 	}
 }
 
-func buildFullDashboard(stats dashboardStatsMsg) []string {
+func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 	var lines []string
 	now := time.Now()
 	host, _ := os.Hostname()
 	
 	lines = append(lines, subtext.Render(now.Format("Monday, January 2, 2006 • 15:04")))
+	if m.weatherLine != "" {
+		lines = append(lines, m.weatherLine)
+	}
 	lines = append(lines, divider.Render(""))
 	
 	lines = append(lines, header.Render("Machine"))
@@ -1445,7 +1424,8 @@ func loadWeather() tea.Cmd {
 				place += ", " + payload.NearestArea[0].Country[0].Value
 			}
 		}
-		return loadedMsg{tab: "Weather", lines: []string{subtext.Render("Place: " + place), "Temp: " + c.TempC + "C", "Feels: " + c.FeelsLikeC + "C", "Humidity: " + c.Humidity + "%", "Condition: " + d}}
+		weatherLine := header.Render(place) + " " + normalItem.Render("• "+c.TempC+"C feels "+c.FeelsLikeC+"C") + " " + subtext.Render("• "+d+" • "+c.Humidity+"%")
+		return weatherLineMsg{line: weatherLine}
 	}
 }
 

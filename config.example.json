@@ -7,10 +7,10 @@
   ],
   "tabs": [
     { "name": "Home", "type": "builtin" },
+    { "name": "Journal", "type": "builtin" },
     { "name": "Calendar", "type": "builtin" },
     { "name": "Weather", "type": "builtin" },
     { "name": "Todos", "type": "builtin" },
-    { "name": "Journal", "type": "builtin" },
     { "name": "Notes", "type": "builtin" },
     { "name": "GitHub", "type": "builtin" },
     { "name": "Habits", "type": "builtin" },
