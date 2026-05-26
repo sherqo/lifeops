@@ -1275,8 +1275,9 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 		lines = append(lines, m.weatherLine)
 	}
 	if len(m.homeEvents) > 0 {
+		_, week := now.ISOWeek()
 		lines = append(lines, "")
-		lines = append(lines, subtext.Render("Next 3 days:"))
+		lines = append(lines, subtext.Render(fmt.Sprintf("Next 3 days (Week %d):", week)))
 		for _, ev := range m.homeEvents {
 			lines = append(lines, ev)
 		}
