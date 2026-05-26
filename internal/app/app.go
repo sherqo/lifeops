@@ -80,11 +80,15 @@ type model struct {
 	todoCursor    int
 	todoFilter    store.TodoFilter
 	ghCursor       int
-	ghSection      int // 0=My PRs, 1=Repos, 2=Reviews, 3=Issues
+	ghSection      int // 0=My PRs, 1=Repos, 2=Reviews, 3=Issues, 4=Account
 	githubPRs      []ghPR
 	githubRepos    []ghRepo
 	githubReviews  []ghReview
 	githubIssues   []ghIssue
+	githubProfile  ghProfile
+	githubActiveRepos []ghActiveRepo
+	githubTodayCommits int
+	githubStreak int
 	githubErr      string
 	dashboard     []string
 	calendar      []string
@@ -129,6 +133,10 @@ type githubLoadedMsg struct {
 	repos   []ghRepo
 	reviews []ghReview
 	issues  []ghIssue
+	profile ghProfile
+	activeRepos []ghActiveRepo
+	todayCommits int
+	streak int
 }
 type githubErrorMsg struct{ err string }
 type journalRefreshMsg struct{}
@@ -220,6 +228,27 @@ type ghIssueRaw struct {
 	URL        string `json:"url"`
 	State      string `json:"state"`
 	Repository struct{ NameWithOwner string } `json:"repository"`
+}
+
+type ghProfile struct {
+	Login       string `json:"login"`
+	Name        string `json:"name"`
+	Followers   int    `json:"followers"`
+	Following   int    `json:"following"`
+	PublicRepos int    `json:"public_repos"`
+	URL         string `json:"html_url"`
+}
+
+type ghActiveRepo struct {
+	Name string
+	URL  string
+}
+
+type ghCommitSearchItem struct {
+	Repository struct {
+		FullName string `json:"fullName"`
+		URL      string `json:"url"`
+	} `json:"repository"`
 }
 
 func (r ghIssueRaw) toGhIssue() ghIssue {
@@ -542,12 +571,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
-			if active == "GitHub" && len(m.githubPRs) > 0 {
-				pr := m.githubPRs[m.ghCursor]
-				if pr.URL != "" {
-					m.status = "PR URL: " + pr.URL
-				} else {
-					m.status = "no PR URL available"
+			if active == "GitHub" {
+				switch m.ghSection {
+				case 0:
+					if len(m.githubPRs) > 0 {
+						pr := m.githubPRs[m.ghCursor]
+						if pr.URL != "" {
+							m.status = "PR URL: " + pr.URL
+						} else {
+							m.status = "no PR URL available"
+						}
+					}
+				case 1:
+					if len(m.githubRepos) > 0 {
+						r := m.githubRepos[m.ghCursor]
+						m.status = "Repo URL: " + r.URL
+					}
+				case 2:
+					if len(m.githubReviews) > 0 {
+						r := m.githubReviews[m.ghCursor]
+						m.status = "Review URL: " + r.URL
+					}
+				case 3:
+					if len(m.githubIssues) > 0 {
+						i := m.githubIssues[m.ghCursor]
+						m.status = "Issue URL: " + i.URL
+					}
+				case 4:
+					if len(m.githubActiveRepos) > 0 {
+						r := m.githubActiveRepos[m.ghCursor]
+						m.status = "Repo URL: " + r.URL
+					} else if m.githubProfile.URL != "" {
+						m.status = "Profile URL: " + m.githubProfile.URL
+					}
 				}
 			}
 			for _, t := range resolveTabs(m.cfg) {
@@ -576,7 +632,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ghCursor = 0
 			}
 		case "]":
-			if m.tabNames()[m.tab] == "GitHub" && m.ghSection < 3 {
+			if m.tabNames()[m.tab] == "GitHub" && m.ghSection < 4 {
 				m.ghSection++
 				m.ghCursor = 0
 			}
@@ -609,6 +665,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.githubRepos = t.repos
 		m.githubReviews = t.reviews
 		m.githubIssues = t.issues
+		m.githubProfile = t.profile
+		m.githubActiveRepos = t.activeRepos
+		m.githubTodayCommits = t.todayCommits
+		m.githubStreak = t.streak
 		m.githubErr = ""
 	case githubErrorMsg:
 		m.githubErr = t.err
@@ -716,6 +776,8 @@ func moveDown(m model) model {
 			max = len(m.githubReviews)
 		case 3:
 			max = len(m.githubIssues)
+		case 4:
+			max = len(m.githubActiveRepos)
 		}
 		if max > 0 && m.ghCursor < max-1 {
 			m.ghCursor++
@@ -829,7 +891,7 @@ func (m model) currentTab() []string {
 	case "Notes":
 		return renderNotes(m.notesDir, m.notesCursor)
 	case "GitHub":
-		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.ghSection, m.ghCursor, m.githubErr)
+		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.githubProfile, m.githubActiveRepos, m.githubTodayCommits, m.githubStreak, m.ghSection, m.ghCursor, m.githubErr)
 	default:
 		if lines, ok := m.customTabs[active]; ok {
 			return lines
@@ -1032,10 +1094,10 @@ func renderHabits(h []store.Habit, cursor int) []string {
 	return lines
 }
 
-func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIssue, section, cursor int, errMsg string) []string {
+func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIssue, profile ghProfile, activeRepos []ghActiveRepo, todayCommits int, streak int, section, cursor int, errMsg string) []string {
 	var lines []string
 
-	sectionNames := []string{"My PRs", "Repositories", "Reviews", "Issues"}
+	sectionNames := []string{"My PRs", "Repositories", "Reviews", "Issues", "Account"}
 	lines = append(lines, header.Render(sectionNames[section]))
 	lines = append(lines, "")
 
@@ -1106,6 +1168,32 @@ func renderGitHub(prs []ghPR, repos []ghRepo, reviews []ghReview, issues []ghIss
 			}
 			lines = append(lines, itemStyle.Render(fmt.Sprintf("#%d %s", iss.Number, iss.Title)))
 			lines = append(lines, subtext.Render("  "+iss.Repo))
+		}
+	case 4: // Account
+		name := profile.Login
+		if profile.Name != "" {
+			name = profile.Name + " (@" + profile.Login + ")"
+		}
+		if name != "" {
+			lines = append(lines, normalItem.Render("Account: "+name))
+		}
+		if profile.PublicRepos > 0 {
+			lines = append(lines, subtext.Render(fmt.Sprintf("Public repos: %d", profile.PublicRepos)))
+		}
+		lines = append(lines, normalItem.Render(fmt.Sprintf("Today commits: %d | Current streak: %d days", todayCommits, streak)))
+		lines = append(lines, "")
+		lines = append(lines, header.Render("Recently active repos"))
+		if len(activeRepos) == 0 {
+			lines = append(lines, subtext.Render("No recent commit activity"))
+		}
+		for i, r := range activeRepos {
+			var itemStyle lipgloss.Style
+			if i == cursor {
+				itemStyle = selected.Bold(true)
+			} else {
+				itemStyle = normalItem
+			}
+			lines = append(lines, itemStyle.Render(r.Name))
 		}
 	}
 
@@ -1463,13 +1551,91 @@ func loadGitHub() tea.Cmd {
 			issues = append(issues, r.toGhIssue())
 		}
 
-		return struct {
-			prs     []ghPR
-			repos   []ghRepo
-			reviews []ghReview
-			issues  []ghIssue
-		}{prs: prs, repos: repos, reviews: reviews, issues: issues}
+		// Account profile
+		raw = run("gh", "api", "user")
+		var profile ghProfile
+		_ = json.Unmarshal([]byte(raw), &profile)
+
+		// Today commits and recently active repos
+		today := time.Now().Format("2006-01-02")
+		raw = run("gh", "search", "commits", "--author", "@me", "--author-date", ">="+today, "--limit", "100", "--json", "sha,repository")
+		var todayCommits []ghCommitSearchItem
+		_ = json.Unmarshal([]byte(raw), &todayCommits)
+
+		since := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+		raw = run("gh", "search", "commits", "--author", "@me", "--author-date", ">="+since, "--limit", "200", "--json", "sha,repository")
+		var recentCommits []ghCommitSearchItem
+		_ = json.Unmarshal([]byte(raw), &recentCommits)
+		seenRepos := map[string]bool{}
+		activeRepos := make([]ghActiveRepo, 0, 8)
+		for _, c := range recentCommits {
+			name := c.Repository.FullName
+			if name == "" || seenRepos[name] {
+				continue
+			}
+			seenRepos[name] = true
+			activeRepos = append(activeRepos, ghActiveRepo{Name: name, URL: c.Repository.URL})
+			if len(activeRepos) >= 8 {
+				break
+			}
+		}
+
+		streak := githubCurrentStreak(profile.Login)
+
+		return githubLoadedMsg{
+			prs:          prs,
+			repos:        repos,
+			reviews:      reviews,
+			issues:       issues,
+			profile:      profile,
+			activeRepos:  activeRepos,
+			todayCommits: len(todayCommits),
+			streak:       streak,
+		}
 	}
+}
+
+func githubCurrentStreak(login string) int {
+	if strings.TrimSpace(login) == "" {
+		return 0
+	}
+	query := "query($login:String!){ user(login:$login){ contributionsCollection { contributionCalendar { weeks { contributionDays { date contributionCount } } } } } }"
+	raw := run("gh", "api", "graphql", "-f", "query="+query, "-f", "login="+login)
+	var payload struct {
+		Data struct {
+			User struct {
+				ContributionsCollection struct {
+					ContributionCalendar struct {
+						Weeks []struct {
+							ContributionDays []struct {
+								Date  string `json:"date"`
+								Count int    `json:"contributionCount"`
+							} `json:"contributionDays"`
+						} `json:"weeks"`
+					} `json:"contributionCalendar"`
+				} `json:"contributionsCollection"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return 0
+	}
+	dayCounts := map[string]int{}
+	for _, w := range payload.Data.User.ContributionsCollection.ContributionCalendar.Weeks {
+		for _, d := range w.ContributionDays {
+			dayCounts[d.Date] = d.Count
+		}
+	}
+	streak := 0
+	for i := 0; i < 365; i++ {
+		day := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
+		if dayCounts[day] > 0 {
+			streak++
+			continue
+		}
+		break
+	}
+	return streak
 }
 
 
