@@ -1,3 +1,4 @@
 lifeops
 *.exe
 *.log
+.DS_Store
