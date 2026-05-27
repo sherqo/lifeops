@@ -48,4 +48,5 @@ Override with env vars `LIFEOPS_NOTES_DIR` and `LIFEOPS_JOURNAL_DIR`, or set `no
 ## Requirements
 
 - `gh` CLI (authenticated) for the GitHub tab.
+- `nvim` to view and edit md files.
 - ICS calendar feeds configured in `config.json` for the Calendar tab.
