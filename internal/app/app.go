@@ -1791,7 +1791,9 @@ func openDirCmd(path string) tea.Cmd {
 		}
 		terminal := strings.TrimSpace(os.Getenv("TERMINAL"))
 		if terminal == "" {
-			if _, err := exec.LookPath("x-terminal-emulator"); err == nil {
+			if _, err := exec.LookPath("alacritty"); err == nil {
+				terminal = "alacritty"
+			} else if _, err := exec.LookPath("x-terminal-emulator"); err == nil {
 				terminal = "x-terminal-emulator"
 			} else if _, err := exec.LookPath("gnome-terminal"); err == nil {
 				terminal = "gnome-terminal"
