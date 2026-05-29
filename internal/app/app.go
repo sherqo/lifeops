@@ -303,7 +303,7 @@ func Run() error {
 	in.Placeholder = "Type and press Enter"
 	in.Prompt = "> "
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, booksDir: booksDir, cfg: cfg, db: db, input: in, status: "ready", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, booksDir: booksDir, cfg: cfg, db: db, input: in, status: "ready", todoFilter: store.FilterOpen, calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
 	for _, tab := range resolved {
 		if tab.Type == "command" {
 			m.customTabs[tab.Name] = []string{"Loading..."}
@@ -1628,7 +1628,7 @@ func loadWeather() tea.Cmd {
 }
 
 func loadTodos(db *store.DB) tea.Cmd {
-	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: renderTodos(db, store.FilterAll, 0)} }
+	return func() tea.Msg { return loadedMsg{tab: "Todos", lines: renderTodos(db, store.FilterOpen, 0)} }
 }
 
 func loadGitHub() tea.Cmd {
