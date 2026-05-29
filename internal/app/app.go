@@ -23,17 +23,17 @@ import (
 
 // Color styles
 var (
-	tabActive    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	tabInactive  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	selected     = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	normalItem   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	header       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75"))
-	subtext      = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
-	statusBar    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("235"))
-	divider      = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	doneItem     = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Strikethrough(true)
-	errorText    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	successText  = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
+	tabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	tabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	selected    = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	normalItem  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	header      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75"))
+	subtext     = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	statusBar   = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("235"))
+	divider     = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	doneItem    = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Strikethrough(true)
+	errorText   = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	successText = lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 )
 
 func tabBorderWithBottom(left, middle, right string) lipgloss.Border {
@@ -54,7 +54,7 @@ var (
 	docStyle          = lipgloss.NewStyle().Padding(1, 2, 1, 2)
 )
 
-var defaultTabs = []string{"Home", "Journal", "Calendar", "Todos", "Notes", "GitHub", "Habits"}
+var defaultTabs = []string{"Home", "Journal", "Books", "Calendar", "Todos", "Notes", "GitHub", "Habits"}
 
 type mode int
 
@@ -64,46 +64,48 @@ const (
 )
 
 type model struct {
-	tab           int
-	width         int
-	height        int
-	status        string
-	mode          mode
-	input         textinput.Model
-	dataDir       string
-	notesDir      string
-	journalDir    string
-	cfg           *config.Config
-	db            *store.DB
-	todoCursor    int
-	todoFilter    store.TodoFilter
-	ghCursor       int
-	ghSection      int // 0=My PRs, 1=Repos, 2=Reviews, 3=Issues, 4=Account
-	githubPRs      []ghPR
-	githubRepos    []ghRepo
-	githubReviews  []ghReview
-	githubIssues   []ghIssue
-	githubProfile  ghProfile
-	githubActiveRepos []ghActiveRepo
+	tab                int
+	width              int
+	height             int
+	status             string
+	mode               mode
+	input              textinput.Model
+	dataDir            string
+	notesDir           string
+	journalDir         string
+	booksDir           string
+	cfg                *config.Config
+	db                 *store.DB
+	todoCursor         int
+	todoFilter         store.TodoFilter
+	ghCursor           int
+	ghSection          int // 0=My PRs, 1=Repos, 2=Reviews, 3=Issues, 4=Account
+	githubPRs          []ghPR
+	githubRepos        []ghRepo
+	githubReviews      []ghReview
+	githubIssues       []ghIssue
+	githubProfile      ghProfile
+	githubActiveRepos  []ghActiveRepo
 	githubTodayCommits int
-	githubStreak int
-	githubErr      string
-	dashboard     []string
-	calendar      []string
-	calMonth      time.Time
-	calendarICS   []string
-	weather       []string
-	customTabs    map[string][]string
-	weatherLine   string
-	homeEvents    []string
-	dashStatsReady bool
-	dashOpen       int
-	dashDone       int
-	dashHabitsDone int
-	dashHabitsTotal int
-	habitCursor   int
-	journalCursor int
-	notesCursor  int
+	githubStreak       int
+	githubErr          string
+	dashboard          []string
+	calendar           []string
+	calMonth           time.Time
+	calendarICS        []string
+	weather            []string
+	customTabs         map[string][]string
+	weatherLine        string
+	homeEvents         []string
+	dashStatsReady     bool
+	dashOpen           int
+	dashDone           int
+	dashHabitsDone     int
+	dashHabitsTotal    int
+	habitCursor        int
+	journalCursor      int
+	notesCursor        int
+	booksCursor        int
 }
 
 func (m model) tabNames() []string {
@@ -119,7 +121,7 @@ func (m model) tabNames() []string {
 }
 
 type refreshMsg struct{}
-type fastRefreshMsg struct{}    // 1 minute - dashboard, todos
+type fastRefreshMsg struct{}     // 1 minute - dashboard, todos
 type slowRefreshMsg struct{}     // 10 minutes - weather, github
 type verySlowRefreshMsg struct{} // 1 hour - asu
 type customRefreshMsg struct{ name string }
@@ -128,21 +130,21 @@ type loadedMsg struct {
 	lines []string
 }
 type githubLoadedMsg struct {
-	prs     []ghPR
-	repos   []ghRepo
-	reviews []ghReview
-	issues  []ghIssue
-	profile ghProfile
-	activeRepos []ghActiveRepo
+	prs          []ghPR
+	repos        []ghRepo
+	reviews      []ghReview
+	issues       []ghIssue
+	profile      ghProfile
+	activeRepos  []ghActiveRepo
 	todayCommits int
-	streak int
+	streak       int
 }
 type githubErrorMsg struct{ err string }
 type journalRefreshMsg struct{}
 type dashboardStatsMsg struct {
-	openTodos  int
-	doneTodos  int
-	habitsDone int
+	openTodos   int
+	doneTodos   int
+	habitsDone  int
 	habitsTotal int
 }
 
@@ -167,10 +169,10 @@ type ghRepo struct {
 }
 
 type ghRepoRaw struct {
-	Name            string `json:"name"`
-	URL             string `json:"url"`
-	Description     string `json:"description"`
-	Visibility      string `json:"visibility"`
+	Name            string                `json:"name"`
+	URL             string                `json:"url"`
+	Description     string                `json:"description"`
+	Visibility      string                `json:"visibility"`
 	PrimaryLanguage struct{ Name string } `json:"primaryLanguage"`
 }
 
@@ -197,10 +199,10 @@ type ghReview struct {
 }
 
 type ghReviewRaw struct {
-	Number     int    `json:"number"`
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	Author     string `json:"author"`
+	Number     int                            `json:"number"`
+	Title      string                         `json:"title"`
+	URL        string                         `json:"url"`
+	Author     string                         `json:"author"`
 	Repository struct{ NameWithOwner string } `json:"repository"`
 }
 
@@ -223,10 +225,10 @@ type ghIssue struct {
 }
 
 type ghIssueRaw struct {
-	Number     int    `json:"number"`
-	Title      string `json:"title"`
-	URL        string `json:"url"`
-	State      string `json:"state"`
+	Number     int                            `json:"number"`
+	Title      string                         `json:"title"`
+	URL        string                         `json:"url"`
+	State      string                         `json:"state"`
 	Repository struct{ NameWithOwner string } `json:"repository"`
 }
 
@@ -286,8 +288,8 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	notesDir, journalDir := config.ResolvePaths(dataDir, cfg)
-	if err := content.EnsureDirs(notesDir, journalDir); err != nil {
+	notesDir, journalDir, booksDir := config.ResolvePaths(dataDir, cfg)
+	if err := content.EnsureDirs(notesDir, journalDir, booksDir); err != nil {
 		return err
 	}
 	calendarICS := cfg.CalendarICS
@@ -301,7 +303,7 @@ func Run() error {
 	in.Placeholder = "Type and press Enter"
 	in.Prompt = "> "
 
-	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, cfg: cfg, db: db, input: in, status: "ready", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
+	m := model{dataDir: dataDir, notesDir: notesDir, journalDir: journalDir, booksDir: booksDir, cfg: cfg, db: db, input: in, status: "ready", calMonth: firstOfMonth(time.Now()), calendarICS: calendarICS, height: 24, customTabs: map[string][]string{}, ghSection: 4}
 	for _, tab := range resolved {
 		if tab.Type == "command" {
 			m.customTabs[tab.Name] = []string{"Loading..."}
@@ -376,9 +378,15 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func tickFast() tea.Cmd  { return tea.Tick(1*time.Minute, func(time.Time) tea.Msg { return fastRefreshMsg{} }) }
-func tickSlow() tea.Cmd  { return tea.Tick(30*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} }) }
-func tickVerySlow() tea.Cmd { return tea.Tick(1*time.Hour, func(time.Time) tea.Msg { return verySlowRefreshMsg{} }) }
+func tickFast() tea.Cmd {
+	return tea.Tick(1*time.Minute, func(time.Time) tea.Msg { return fastRefreshMsg{} })
+}
+func tickSlow() tea.Cmd {
+	return tea.Tick(30*time.Minute, func(time.Time) tea.Msg { return slowRefreshMsg{} })
+}
+func tickVerySlow() tea.Cmd {
+	return tea.Tick(1*time.Hour, func(time.Time) tea.Msg { return verySlowRefreshMsg{} })
+}
 
 func customTick(name string, minutes int) tea.Cmd {
 	if minutes <= 0 {
@@ -467,19 +475,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tabs := m.tabNames()
 				return m, loadTab(tabs[m.tab], m.db, m.calMonth, m.calendarICS)
 			}
-	case "r":
-		m.status = "refreshing..."
-		tabs := m.tabNames()
-		active := tabs[m.tab]
-		if cmd := loadTab(active, m.db, m.calMonth, m.calendarICS); cmd != nil {
-			return m, cmd
-		}
-		for _, t := range resolveTabs(m.cfg) {
-			if t.Type == "command" && strings.EqualFold(t.Name, active) {
-				return m, loadCustomTab(t.Name, t.Command)
+		case "r":
+			m.status = "refreshing..."
+			tabs := m.tabNames()
+			active := tabs[m.tab]
+			if cmd := loadTab(active, m.db, m.calMonth, m.calendarICS); cmd != nil {
+				return m, cmd
 			}
-		}
-		return m, nil
+			for _, t := range resolveTabs(m.cfg) {
+				if t.Type == "command" && strings.EqualFold(t.Name, active) {
+					return m, loadCustomTab(t.Name, t.Command)
+				}
+			}
+			return m, nil
 		case "n":
 			if m.tabNames()[m.tab] == "Calendar" {
 				m.calMonth = m.calMonth.AddDate(0, 1, 0)
@@ -520,11 +528,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
 			}
+			if active == "Books" {
+				path := selectedBookPath(m.booksDir, m.booksCursor)
+				if path == "" {
+					m.status = "no books found"
+					return m, nil
+				}
+				m.status = "opening book"
+				return m, openBookCmd(path)
+			}
 		case "w":
 			if m.tabNames()[m.tab] == "Journal" {
 				_ = os.MkdirAll(m.journalDir, 0o755)
 				m.status = "opening current week journal"
 				return m, openInEditorCmd(currentWeekJournalPath(m.journalDir))
+			}
+		case "d":
+			active := m.tabNames()[m.tab]
+			if active == "Journal" {
+				m.status = "opening journal directory"
+				return m, openDirCmd(m.journalDir)
+			}
+			if active == "Notes" {
+				m.status = "opening notes directory"
+				return m, openDirCmd(m.notesDir)
+			}
+			if active == "Books" {
+				m.status = "opening books directory"
+				return m, openDirCmd(m.booksDir)
 			}
 		case "j":
 			m = moveDown(m)
@@ -562,6 +593,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if active == "Notes" {
 				m.status = "opening notes in editor"
 				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
+			}
+			if active == "Books" {
+				path := selectedBookPath(m.booksDir, m.booksCursor)
+				if path == "" {
+					m.status = "no books found"
+					return m, nil
+				}
+				m.status = "opening book"
+				return m, openBookCmd(path)
 			}
 			if active == "GitHub" {
 				switch m.ghSection {
@@ -672,9 +712,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.weatherLine = t.line
 		if m.dashStatsReady {
 			m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
-				openTodos:  m.dashOpen,
-				doneTodos:  m.dashDone,
-				habitsDone: m.dashHabitsDone,
+				openTodos:   m.dashOpen,
+				doneTodos:   m.dashDone,
+				habitsDone:  m.dashHabitsDone,
 				habitsTotal: m.dashHabitsTotal,
 			})
 		}
@@ -682,9 +722,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.homeEvents = t.lines
 		if m.dashStatsReady {
 			m.dashboard = buildDashboardWithWeather(m, dashboardStatsMsg{
-				openTodos:  m.dashOpen,
-				doneTodos:  m.dashDone,
-				habitsDone: m.dashHabitsDone,
+				openTodos:   m.dashOpen,
+				doneTodos:   m.dashDone,
+				habitsDone:  m.dashHabitsDone,
 				habitsTotal: m.dashHabitsTotal,
 			})
 		}
@@ -732,6 +772,12 @@ func moveDown(m model) model {
 			m.notesCursor++
 		}
 	}
+	if m.tabNames()[m.tab] == "Books" {
+		n := len(booksFilesForDisplay(m.booksDir))
+		if m.booksCursor < n-1 {
+			m.booksCursor++
+		}
+	}
 	return m
 }
 
@@ -750,6 +796,9 @@ func moveUp(m model) model {
 	}
 	if m.tabNames()[m.tab] == "Notes" && m.notesCursor > 0 {
 		m.notesCursor--
+	}
+	if m.tabNames()[m.tab] == "Books" && m.booksCursor > 0 {
+		m.booksCursor--
 	}
 	return m
 }
@@ -820,6 +869,8 @@ func (m model) currentTab() []string {
 		return renderJournal(m.journalDir, m.journalCursor)
 	case "Notes":
 		return renderNotes(m.notesDir, m.notesCursor)
+	case "Books":
+		return renderBooks(m.booksDir, m.booksCursor)
 	case "GitHub":
 		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.githubProfile, m.githubActiveRepos, m.githubTodayCommits, m.githubStreak, m.ghSection, m.ghCursor, m.githubErr)
 	default:
@@ -845,9 +896,11 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Todos":
 		return "x/space: toggle | f: filter"
 	case "Journal":
-		return "a: add | e: edit | w: this week"
+		return "a: add | e: edit | w: this week | d: dir"
 	case "Notes":
-		return "a: add | e: edit"
+		return "a: add | e: edit | d: dir"
+	case "Books":
+		return "Enter/e: open | d: dir"
 	case "GitHub":
 		return "[:] sections | Enter: open | t: todo"
 	case "Habits":
@@ -953,6 +1006,55 @@ func renderNotes(notesDir string, cursor int) []string {
 		lines = append(lines, itemStyle.Render(name))
 	}
 	return lines
+}
+
+func renderBooks(booksDir string, cursor int) []string {
+	files := booksFilesForDisplay(booksDir)
+	lines := []string{}
+
+	if _, err := os.Stat(booksDir); os.IsNotExist(err) {
+		lines = append(lines, errorText.Render("ERROR: Books directory does not exist: "+booksDir))
+		lines = append(lines, subtext.Render("Set books_dir in ~/.config/lifeops/config.json"))
+	} else {
+		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
+	}
+
+	if len(files) == 0 {
+		return append(lines, subtext.Render("No books found"))
+	}
+	for i, path := range files {
+		name := filepath.Base(path)
+		var itemStyle lipgloss.Style
+		if i == cursor {
+			itemStyle = selected.Bold(true)
+		} else {
+			itemStyle = normalItem
+		}
+		lines = append(lines, itemStyle.Render(name))
+	}
+	return lines
+}
+
+func booksFilesForDisplay(booksDir string) []string {
+	files := content.RecentBookFiles(booksDir)
+	if len(files) == 0 {
+		return []string{}
+	}
+	return files
+}
+
+func selectedBookPath(booksDir string, cursor int) string {
+	files := booksFilesForDisplay(booksDir)
+	if len(files) == 0 {
+		return ""
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(files) {
+		cursor = len(files) - 1
+	}
+	return files[cursor]
 }
 
 func notesFilesForDisplay(notesDir string) []string {
@@ -1150,9 +1252,9 @@ func loadDashboardStats(db *store.DB) tea.Cmd {
 			}
 		}
 		return dashboardStatsMsg{
-			openTodos:  open,
-			doneTodos:  done,
-			habitsDone: habitsDone,
+			openTodos:   open,
+			doneTodos:   done,
+			habitsDone:  habitsDone,
 			habitsTotal: len(db.Habits),
 		}
 	}
@@ -1162,7 +1264,7 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 	var lines []string
 	now := time.Now()
 	host, _ := os.Hostname()
-	
+
 	lines = append(lines, header.Render(now.Format("15:04"))+" "+subtext.Render(now.Format("Monday, January 2, 2006")))
 	if m.weatherLine != "" {
 		lines = append(lines, "")
@@ -1177,7 +1279,7 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 		}
 	}
 	lines = append(lines, divider.Render(""))
-	
+
 	lines = append(lines, header.Render("Machine"))
 	osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	machineParts := []string{"Host: " + host, "OS: " + osInfo}
@@ -1193,7 +1295,7 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 	}
 	lines = append(lines, normalItem.Render(strings.Join(machineParts, " • ")))
 	lines = append(lines, divider.Render(""))
-	
+
 	lines = append(lines, header.Render("Stats"))
 	todoStr := fmt.Sprintf("Todos: %d open, %d done", stats.openTodos, stats.doneTodos)
 	todoColor := successText
@@ -1201,14 +1303,14 @@ func buildDashboardWithWeather(m model, stats dashboardStatsMsg) []string {
 		todoColor = errorText
 	}
 	lines = append(lines, todoColor.Render(todoStr))
-	
+
 	habitStr := fmt.Sprintf("Habits: %d/%d done", stats.habitsDone, stats.habitsTotal)
 	habitColor := successText
 	if stats.habitsTotal > 0 && stats.habitsDone < stats.habitsTotal {
 		habitColor = subtext
 	}
 	lines = append(lines, habitColor.Render(habitStr))
-	
+
 	return lines
 }
 
@@ -1668,9 +1770,43 @@ func githubCurrentStreak(login string) int {
 	return streak
 }
 
-
 func openInEditorCmd(path string) tea.Cmd {
 	return tea.ExecProcess(editorCommand(path), func(err error) tea.Msg { return nil })
+}
+
+func openBookCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("okular", path)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		_ = cmd.Start()
+		return nil
+	}
+}
+
+func openDirCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		if strings.TrimSpace(path) == "" {
+			return nil
+		}
+		terminal := strings.TrimSpace(os.Getenv("TERMINAL"))
+		if terminal == "" {
+			if _, err := exec.LookPath("x-terminal-emulator"); err == nil {
+				terminal = "x-terminal-emulator"
+			} else if _, err := exec.LookPath("gnome-terminal"); err == nil {
+				terminal = "gnome-terminal"
+			} else if _, err := exec.LookPath("xterm"); err == nil {
+				terminal = "xterm"
+			} else {
+				return nil
+			}
+		}
+		cmd := exec.Command(terminal, "-e", "bash", "-lc", "cd -- \""+path+"\"; exec \"${SHELL:-bash}\"")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		_ = cmd.Start()
+		return nil
+	}
 }
 
 func editorCommand(path string) *exec.Cmd {
@@ -1722,7 +1858,6 @@ func trimOneLine(s string, max int) string {
 	}
 	return s[:max-3] + "..."
 }
-
 
 func run(cmd string, args ...string) string {
 	out, err := exec.Command(cmd, args...).CombinedOutput()

@@ -10,11 +10,14 @@ import (
 	"time"
 )
 
-func EnsureDirs(notesDir, journalDir string) error {
+func EnsureDirs(notesDir, journalDir, booksDir string) error {
 	if err := os.MkdirAll(notesDir, 0o700); err != nil {
 		return err
 	}
-	return os.MkdirAll(journalDir, 0o700)
+	if err := os.MkdirAll(journalDir, 0o700); err != nil {
+		return err
+	}
+	return os.MkdirAll(booksDir, 0o700)
 }
 
 func AddNote(notesDir, text string) error {
@@ -95,7 +98,7 @@ func RecentJournalFiles(journalDir string) []string {
 	if journalDir == "" {
 		return []string{}
 	}
-	
+
 	info, err := os.Stat(journalDir)
 	if err != nil || !info.IsDir() {
 		return []string{}
@@ -119,7 +122,7 @@ func RecentJournalFiles(journalDir string) []string {
 		// Skip the old daily journal file - it's now just historical
 		if strings.HasSuffix(name, ".md") && !strings.Contains(name, "_") {
 			// Could still include if you want, but let's focus on new entries
-			// return nil 
+			// return nil
 		}
 		st, statErr := d.Info()
 		if statErr != nil {
@@ -182,7 +185,7 @@ func RecentNotesFiles(notesDir string) []string {
 	if notesDir == "" {
 		return []string{}
 	}
-	
+
 	info, err := os.Stat(notesDir)
 	if err != nil || !info.IsDir() {
 		return []string{}
@@ -216,6 +219,53 @@ func RecentNotesFiles(notesDir string) []string {
 
 	if len(files) > 30 {
 		files = files[:30]
+	}
+
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f.path)
+	}
+	return out
+}
+
+func RecentBookFiles(booksDir string) []string {
+	if booksDir == "" {
+		return []string{}
+	}
+
+	info, err := os.Stat(booksDir)
+	if err != nil || !info.IsDir() {
+		return []string{}
+	}
+
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+	}
+	var files []fileInfo
+
+	_ = filepath.WalkDir(booksDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d == nil || d.IsDir() {
+			return nil
+		}
+		name := strings.ToLower(d.Name())
+		if !strings.HasSuffix(name, ".pdf") && !strings.HasSuffix(name, ".epub") && !strings.HasSuffix(name, ".mobi") {
+			return nil
+		}
+		st, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		files = append(files, fileInfo{path: path, modTime: st.ModTime()})
+		return nil
+	})
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modTime.After(files[j].modTime)
+	})
+
+	if len(files) > 60 {
+		files = files[:60]
 	}
 
 	out := make([]string, 0, len(files))

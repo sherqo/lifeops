@@ -1,6 +1,7 @@
 {
   "notes_dir": "/home/you/notes/lifeops",
   "journal_dir": "/home/you/journal/lifeops",
+  "books_dir": "/home/you/books",
   "calendar_ics_urls": [
     "https://calendar.google.com/calendar/ical/your-private-calendar/basic.ics",
     "https://calendar.google.com/calendar/ical/your-other-calendar/basic.ics"
@@ -8,6 +9,7 @@
   "tabs": [
     { "name": "Home", "type": "builtin" },
     { "name": "Journal", "type": "builtin" },
+    { "name": "Books", "type": "builtin" },
     { "name": "Calendar", "type": "builtin" },
     { "name": "Todos", "type": "builtin" },
     { "name": "Notes", "type": "builtin" },

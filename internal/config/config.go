@@ -12,6 +12,7 @@ const fileName = "config.json"
 type Config struct {
 	NotesDir    string   `json:"notes_dir"`
 	JournalDir  string   `json:"journal_dir"`
+	BooksDir    string   `json:"books_dir"`
 	CalendarICS []string `json:"calendar_ics_urls"`
 	Tabs        []Tab    `json:"tabs"`
 }
@@ -49,14 +50,18 @@ func Save(dataDir string, cfg *Config) error {
 	return os.WriteFile(path, raw, 0o600)
 }
 
-func ResolvePaths(dataDir string, cfg *Config) (notesDir string, journalDir string) {
+func ResolvePaths(dataDir string, cfg *Config) (notesDir string, journalDir string, booksDir string) {
 	notesDir = cfg.NotesDir
 	journalDir = cfg.JournalDir
+	booksDir = cfg.BooksDir
 	if notesDir == "" {
 		notesDir = filepath.Join(dataDir, "notes")
 	}
 	if journalDir == "" {
 		journalDir = filepath.Join(dataDir, "journal")
+	}
+	if booksDir == "" {
+		booksDir = filepath.Join(dataDir, "books")
 	}
 	if v := os.Getenv("LIFEOPS_NOTES_DIR"); v != "" {
 		notesDir = v
@@ -64,5 +69,8 @@ func ResolvePaths(dataDir string, cfg *Config) (notesDir string, journalDir stri
 	if v := os.Getenv("LIFEOPS_JOURNAL_DIR"); v != "" {
 		journalDir = v
 	}
-	return notesDir, journalDir
+	if v := os.Getenv("LIFEOPS_BOOKS_DIR"); v != "" {
+		booksDir = v
+	}
+	return notesDir, journalDir, booksDir
 }
