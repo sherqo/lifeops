@@ -27,14 +27,16 @@ go run .
 | `r` | Refresh current tab |
 | `q` | Quit |
 | `a` | Add item (Todos, Journal, Notes) |
-| `e` | Toggle folder or open file (Journal/Notes/Books) |
+| `e` / `space` | Toggle folder or open file (Journal/Notes/Books) |
 | `w` | Edit current week journal file |
 | `d` | Open current tab directory in a new terminal (Journal/Notes/Books) |
+| `D` | Delete selected note/journal/book (confirm with y/n) |
 | `n` / `p` | Next/previous month (Calendar) |
-| `T` | Today in Calendar |
+| `t` | Today in Calendar |
 | `x` / `space` | Toggle todo or habit |
 | `f` | Cycle todo filter |
 | `[` / `]` | Switch GitHub section |
+| `T` | Create todo from GitHub PR |
 | `Enter` | Toggle folder or open file / GitHub URL |
 
 ## Data
