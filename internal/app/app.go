@@ -106,6 +106,18 @@ type model struct {
 	journalCursor      int
 	notesCursor        int
 	booksCursor        int
+
+	journalEntries []treeEntry
+	notesEntries   []treeEntry
+	booksEntries   []treeEntry
+}
+
+type treeEntry struct {
+	Path   string
+	Label  string
+	IsDir  bool
+	Depth  int
+	IsRoot bool
 }
 
 func (m model) tabNames() []string {
@@ -516,22 +528,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			active := m.tabNames()[m.tab]
 			if active == "Journal" {
-				path := selectedJournalPath(m.journalDir, m.journalCursor)
+				path, isDir := selectedTreePath(m.journalEntries, m.journalCursor)
 				if path == "" {
 					m.status = "no journal files - press 'a' or 'w'"
+					return m, nil
+				}
+				if isDir {
+					m.journalEntries = toggleTree(m.db, "journal", path, m.journalEntries)
+					m.status = "journal section toggled"
+					_ = store.Save(m.dataDir, m.db)
 					return m, nil
 				}
 				m.status = "opening journal in editor"
 				return m, openInEditorCmd(path)
 			}
 			if active == "Notes" {
+				path, isDir := selectedTreePath(m.notesEntries, m.notesCursor)
+				if path == "" {
+					m.status = "no notes found"
+					return m, nil
+				}
+				if isDir {
+					m.notesEntries = toggleTree(m.db, "notes", path, m.notesEntries)
+					m.status = "notes section toggled"
+					_ = store.Save(m.dataDir, m.db)
+					return m, nil
+				}
 				m.status = "opening notes in editor"
-				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
+				return m, openInEditorCmd(path)
 			}
 			if active == "Books" {
-				path := selectedBookPath(m.booksDir, m.booksCursor)
+				path, isDir := selectedTreePath(m.booksEntries, m.booksCursor)
 				if path == "" {
 					m.status = "no books found"
+					return m, nil
+				}
+				if isDir {
+					m.booksEntries = toggleTree(m.db, "books", path, m.booksEntries)
+					m.status = "books section toggled"
+					_ = store.Save(m.dataDir, m.db)
 					return m, nil
 				}
 				m.status = "opening book"
@@ -582,22 +617,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o", "enter":
 			active := m.tabNames()[m.tab]
 			if active == "Journal" {
-				path := selectedJournalPath(m.journalDir, m.journalCursor)
+				path, isDir := selectedTreePath(m.journalEntries, m.journalCursor)
 				if path == "" {
 					m.status = "no journal files - press 'a' or 'w'"
+					return m, nil
+				}
+				if isDir {
+					m.journalEntries = toggleTree(m.db, "journal", path, m.journalEntries)
+					m.status = "journal section toggled"
+					_ = store.Save(m.dataDir, m.db)
 					return m, nil
 				}
 				m.status = "opening journal in editor"
 				return m, openInEditorCmd(path)
 			}
 			if active == "Notes" {
+				path, isDir := selectedTreePath(m.notesEntries, m.notesCursor)
+				if path == "" {
+					m.status = "no notes found"
+					return m, nil
+				}
+				if isDir {
+					m.notesEntries = toggleTree(m.db, "notes", path, m.notesEntries)
+					m.status = "notes section toggled"
+					_ = store.Save(m.dataDir, m.db)
+					return m, nil
+				}
 				m.status = "opening notes in editor"
-				return m, openInEditorCmd(selectedNotesPath(m.notesDir, m.notesCursor))
+				return m, openInEditorCmd(path)
 			}
 			if active == "Books" {
-				path := selectedBookPath(m.booksDir, m.booksCursor)
+				path, isDir := selectedTreePath(m.booksEntries, m.booksCursor)
 				if path == "" {
 					m.status = "no books found"
+					return m, nil
+				}
+				if isDir {
+					m.booksEntries = toggleTree(m.db, "books", path, m.booksEntries)
+					m.status = "books section toggled"
+					_ = store.Save(m.dataDir, m.db)
 					return m, nil
 				}
 				m.status = "opening book"
@@ -761,19 +819,19 @@ func moveDown(m model) model {
 		m.habitCursor++
 	}
 	if m.tabNames()[m.tab] == "Journal" {
-		n := len(journalFilesForDisplay(m.journalDir))
+		n := len(m.journalEntries)
 		if m.journalCursor < n-1 {
 			m.journalCursor++
 		}
 	}
 	if m.tabNames()[m.tab] == "Notes" {
-		n := len(notesFilesForDisplay(m.notesDir))
+		n := len(m.notesEntries)
 		if m.notesCursor < n-1 {
 			m.notesCursor++
 		}
 	}
 	if m.tabNames()[m.tab] == "Books" {
-		n := len(booksFilesForDisplay(m.booksDir))
+		n := len(m.booksEntries)
 		if m.booksCursor < n-1 {
 			m.booksCursor++
 		}
@@ -866,11 +924,17 @@ func (m model) currentTab() []string {
 	case "Todos":
 		return renderTodos(m.db, m.todoFilter, m.todoCursor)
 	case "Journal":
-		return renderJournal(m.journalDir, m.journalCursor)
+		lines, entries := renderJournal(m.journalDir, m.journalCursor, m.db)
+		m.journalEntries = entries
+		return lines
 	case "Notes":
-		return renderNotes(m.notesDir, m.notesCursor)
+		lines, entries := renderNotes(m.notesDir, m.notesCursor, m.db)
+		m.notesEntries = entries
+		return lines
 	case "Books":
-		return renderBooks(m.booksDir, m.booksCursor)
+		lines, entries := renderBooks(m.booksDir, m.booksCursor, m.db)
+		m.booksEntries = entries
+		return lines
 	case "GitHub":
 		return renderGitHub(m.githubPRs, m.githubRepos, m.githubReviews, m.githubIssues, m.githubProfile, m.githubActiveRepos, m.githubTodayCommits, m.githubStreak, m.ghSection, m.ghCursor, m.githubErr)
 	default:
@@ -896,11 +960,11 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Todos":
 		return "x/space: toggle | f: filter"
 	case "Journal":
-		return "a: add | e: edit | w: this week | d: dir"
+		return "a: add | Enter/e: toggle/open | w: this week | d: dir"
 	case "Notes":
-		return "a: add | e: edit | d: dir"
+		return "a: add | Enter/e: toggle/open | d: dir"
 	case "Books":
-		return "Enter/e: open | d: dir"
+		return "Enter/e: toggle/open | d: dir"
 	case "GitHub":
 		return "[:] sections | Enter: open | t: todo"
 	case "Habits":
@@ -936,148 +1000,138 @@ func loadCustomTab(name string, cmd []string) tea.Cmd {
 	}
 }
 
-func renderJournal(journalDir string, cursor int) []string {
-	files := journalFilesForDisplay(journalDir)
+func renderJournal(journalDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
+	return renderTreeTab("journal", journalDir, cursor, db, func(name string) bool {
+		lower := strings.ToLower(name)
+		return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+	}, "Set journal_dir in ~/.config/lifeops/config.json", "No journal files - press 'a' to create one")
+}
+
+func renderNotes(notesDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
+	return renderTreeTab("notes", notesDir, cursor, db, func(name string) bool {
+		lower := strings.ToLower(name)
+		return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+	}, "Set notes_dir in ~/.config/lifeops/config.json", "No notes - press 'a' to create one")
+}
+
+func renderBooks(booksDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
+	return renderTreeTab("books", booksDir, cursor, db, func(name string) bool {
+		lower := strings.ToLower(name)
+		return strings.HasSuffix(lower, ".pdf") || strings.HasSuffix(lower, ".epub") || strings.HasSuffix(lower, ".mobi")
+	}, "Set books_dir in ~/.config/lifeops/config.json", "No books found")
+}
+
+func renderTreeTab(key, root string, cursor int, db *store.DB, allow func(string) bool, missingHint string, emptyHint string) ([]string, []treeEntry) {
 	lines := []string{}
-
-	if _, err := os.Stat(journalDir); os.IsNotExist(err) {
-		lines = append(lines, errorText.Render("ERROR: Journal directory does not exist: "+journalDir))
-		lines = append(lines, subtext.Render("Set journal_dir in ~/.config/lifeops/config.json"))
-	} else {
-		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		lines = append(lines, errorText.Render("ERROR: Directory does not exist: "+root))
+		lines = append(lines, subtext.Render(missingHint))
+		return lines, nil
 	}
 
-	if len(files) == 0 {
-		return append(lines, subtext.Render("No journal files - press 'a' to create one"))
+	rootNode, err := content.BuildFileTree(root, allow)
+	if err != nil || rootNode == nil {
+		lines = append(lines, subtext.Render(emptyHint))
+		return lines, nil
 	}
-	for i, path := range files {
-		name := filepath.Base(path)
+
+	entries := flattenTree(rootNode, key, db)
+	lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", countFiles(entries))))
+	if len(entries) == 0 {
+		return append(lines, subtext.Render(emptyHint)), entries
+	}
+
+	for i, entry := range entries {
+		label := entryLabel(entry, key, db)
 		var itemStyle lipgloss.Style
 		if i == cursor {
 			itemStyle = selected.Bold(true)
 		} else {
 			itemStyle = normalItem
 		}
-		lines = append(lines, itemStyle.Render(name))
+		lines = append(lines, itemStyle.Render(label))
 	}
-	return lines
+	return lines, entries
 }
 
-func journalFilesForDisplay(journalDir string) []string {
-	return content.RecentJournalFiles(journalDir)
+func flattenTree(root *content.TreeNode, key string, db *store.DB) []treeEntry {
+	if root == nil {
+		return nil
+	}
+	entries := []treeEntry{}
+	for _, child := range root.Children {
+		entries = append(entries, flattenNode(child, key, db, 0, true)...)
+	}
+	return entries
 }
 
-func selectedJournalPath(journalDir string, cursor int) string {
-	files := journalFilesForDisplay(journalDir)
-	if len(files) == 0 {
-		return ""
+func flattenNode(node *content.TreeNode, key string, db *store.DB, depth int, isRoot bool) []treeEntry {
+	if node == nil {
+		return nil
 	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor >= len(files) {
-		cursor = len(files) - 1
-	}
-	return files[cursor]
-}
-
-func renderNotes(notesDir string, cursor int) []string {
-	files := notesFilesForDisplay(notesDir)
-	lines := []string{}
-
-	if _, err := os.Stat(notesDir); os.IsNotExist(err) {
-		lines = append(lines, errorText.Render("ERROR: Notes directory does not exist: "+notesDir))
-		lines = append(lines, subtext.Render("Use :set-notes <path> to set a valid path"))
-	} else {
-		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
-	}
-
-	if len(files) == 0 {
-		return append(lines, subtext.Render("No notes - press 'a' to create one"))
-	}
-	for i, path := range files {
-		name := filepath.Base(path)
-		var itemStyle lipgloss.Style
-		if i == cursor {
-			itemStyle = selected.Bold(true)
-		} else {
-			itemStyle = normalItem
+	entries := []treeEntry{}
+	if node.IsDir {
+		expanded := store.IsExpanded(db, treeKey(key, node.Path))
+		entries = append(entries, treeEntry{Path: node.Path, Label: node.Name, IsDir: true, Depth: depth, IsRoot: isRoot})
+		if expanded {
+			for _, child := range node.Children {
+				entries = append(entries, flattenNode(child, key, db, depth+1, false)...)
+			}
 		}
-		lines = append(lines, itemStyle.Render(name))
+		return entries
 	}
-	return lines
+	entries = append(entries, treeEntry{Path: node.Path, Label: node.Name, IsDir: false, Depth: depth, IsRoot: isRoot})
+	return entries
 }
 
-func renderBooks(booksDir string, cursor int) []string {
-	files := booksFilesForDisplay(booksDir)
-	lines := []string{}
-
-	if _, err := os.Stat(booksDir); os.IsNotExist(err) {
-		lines = append(lines, errorText.Render("ERROR: Books directory does not exist: "+booksDir))
-		lines = append(lines, subtext.Render("Set books_dir in ~/.config/lifeops/config.json"))
-	} else {
-		lines = append(lines, subtext.Render("Files: "+fmt.Sprintf("%d", len(files))))
-	}
-
-	if len(files) == 0 {
-		return append(lines, subtext.Render("No books found"))
-	}
-	for i, path := range files {
-		name := filepath.Base(path)
-		var itemStyle lipgloss.Style
-		if i == cursor {
-			itemStyle = selected.Bold(true)
-		} else {
-			itemStyle = normalItem
+func entryLabel(entry treeEntry, key string, db *store.DB) string {
+	indent := strings.Repeat("  ", entry.Depth)
+	if entry.IsDir {
+		marker := "▸"
+		if store.IsExpanded(db, treeKey(key, entry.Path)) {
+			marker = "▾"
 		}
-		lines = append(lines, itemStyle.Render(name))
+		return fmt.Sprintf("%s%s %s", indent, marker, entry.Label)
 	}
-	return lines
+	return fmt.Sprintf("%s%s", indent, entry.Label)
 }
 
-func booksFilesForDisplay(booksDir string) []string {
-	files := content.RecentBookFiles(booksDir)
-	if len(files) == 0 {
-		return []string{}
+func countFiles(entries []treeEntry) int {
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir {
+			count++
+		}
 	}
-	return files
+	return count
 }
 
-func selectedBookPath(booksDir string, cursor int) string {
-	files := booksFilesForDisplay(booksDir)
-	if len(files) == 0 {
-		return ""
+func selectedTreePath(entries []treeEntry, cursor int) (string, bool) {
+	if len(entries) == 0 {
+		return "", false
 	}
 	if cursor < 0 {
 		cursor = 0
 	}
-	if cursor >= len(files) {
-		cursor = len(files) - 1
+	if cursor >= len(entries) {
+		cursor = len(entries) - 1
 	}
-	return files[cursor]
+	entry := entries[cursor]
+	return entry.Path, entry.IsDir
 }
 
-func notesFilesForDisplay(notesDir string) []string {
-	files := content.RecentNotesFiles(notesDir)
-	if len(files) == 0 {
-		return []string{}
+func toggleTree(db *store.DB, key, path string, entries []treeEntry) []treeEntry {
+	if strings.TrimSpace(path) == "" {
+		return entries
 	}
-	// Sort by modification time, newest first is already done in RecentNotesFiles
-	return files
+	current := store.IsExpanded(db, treeKey(key, path))
+	store.SetExpanded(db, treeKey(key, path), !current)
+	return entries
 }
 
-func selectedNotesPath(notesDir string, cursor int) string {
-	files := notesFilesForDisplay(notesDir)
-	if len(files) == 0 {
-		return ""
-	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor >= len(files) {
-		cursor = len(files) - 1
-	}
-	return files[cursor]
+func treeKey(scope, path string) string {
+	return scope + ":" + path
 }
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
