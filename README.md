@@ -27,7 +27,7 @@ go run .
 | `r` | Refresh current tab |
 | `q` | Quit |
 | `a` | Add item (Todos, Journal, Notes) |
-| `e` | Edit selected Journal/Notes or open Book |
+| `e` | Toggle folder or open file (Journal/Notes/Books) |
 | `w` | Edit current week journal file |
 | `d` | Open current tab directory in a new terminal (Journal/Notes/Books) |
 | `n` / `p` | Next/previous month (Calendar) |
@@ -35,7 +35,7 @@ go run .
 | `x` / `space` | Toggle todo or habit |
 | `f` | Cycle todo filter |
 | `[` / `]` | Switch GitHub section |
-| `Enter` | Open selected item / GitHub URL |
+| `Enter` | Toggle folder or open file / GitHub URL |
 
 ## Data
 
