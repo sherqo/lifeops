@@ -484,6 +484,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "deleted"
 					setEntriesForTab(&m, m.confirmDelete.Tab, nil)
 					ensureTreeEntries(&m, m.confirmDelete.Tab)
+					clampCursor(&m, m.confirmDelete.Tab)
 				} else {
 					m.status = "cannot delete folder"
 				}
@@ -1255,6 +1256,27 @@ func setEntriesForTab(m *model, name string, entries []treeEntry) {
 		m.notesEntries = entries
 	case "Books":
 		m.booksEntries = entries
+	}
+}
+
+func clampCursor(m *model, tab string) {
+	entries, _ := entriesForTab(m, tab)
+	if len(entries) == 0 {
+		return
+	}
+	switch tab {
+	case "Journal":
+		if m.journalCursor >= len(entries) {
+			m.journalCursor = len(entries) - 1
+		}
+	case "Notes":
+		if m.notesCursor >= len(entries) {
+			m.notesCursor = len(entries) - 1
+		}
+	case "Books":
+		if m.booksCursor >= len(entries) {
+			m.booksCursor = len(entries) - 1
+		}
 	}
 }
 
