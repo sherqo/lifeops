@@ -96,6 +96,16 @@ func VisibleTodoIndices(db *DB, filter TodoFilter) []int {
 	return out
 }
 
+func DeleteVisibleTodo(db *DB, filter TodoFilter, visibleIndex int) bool {
+	idx := VisibleTodoIndices(db, filter)
+	if visibleIndex < 0 || visibleIndex >= len(idx) {
+		return false
+	}
+	actual := idx[visibleIndex]
+	db.Todos = append(db.Todos[:actual], db.Todos[actual+1:]...)
+	return true
+}
+
 func ToggleVisibleTodo(db *DB, filter TodoFilter, visibleIndex int) bool {
 	idx := VisibleTodoIndices(db, filter)
 	if visibleIndex < 0 || visibleIndex >= len(idx) {

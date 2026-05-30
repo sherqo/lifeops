@@ -479,7 +479,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k, ok := msg.(tea.KeyMsg); ok {
 			switch k.String() {
 			case "y", "Y":
-				if !m.confirmDelete.IsDir {
+				if m.confirmDelete.Tab == "Todos" {
+					if store.DeleteVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
+						_ = store.Save(m.dataDir, m.db)
+						m.status = "deleted"
+						n := len(store.VisibleTodoIndices(m.db, m.todoFilter))
+						if n > 0 && m.todoCursor >= n {
+							m.todoCursor = n - 1
+						}
+					}
+				} else if !m.confirmDelete.IsDir {
 					_ = exec.Command("trash-put", m.confirmDelete.Path).Run()
 					m.status = "deleted"
 					setEntriesForTab(&m, m.confirmDelete.Tab, nil)
@@ -630,6 +639,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ensureTreeEntries(&m, activeTab)
 			m = moveUp(m)
 		case "D":
+			if activeTab == "Todos" {
+				idx := store.VisibleTodoIndices(m.db, m.todoFilter)
+				if m.todoCursor < 0 || m.todoCursor >= len(idx) {
+					m.status = "nothing selected"
+					return m, nil
+				}
+				actual := idx[m.todoCursor]
+				title := m.db.Todos[actual].Text
+				m.confirmDelete = &deleteConfirm{Tab: activeTab, Path: "", Title: title, IsDir: false}
+				m.status = "Delete " + title + "? (y/n)"
+				return m, nil
+			}
 			if activeTab == "Journal" || activeTab == "Notes" || activeTab == "Books" {
 				entries, cursor := entriesForTab(&m, activeTab)
 				path, isDir := selectedTreePath(entries, cursor)
@@ -1025,7 +1046,7 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Calendar":
 		return "n/p: month | T: today"
 	case "Todos":
-		return "x/space: toggle | f: filter"
+		return "x/space: toggle | D: delete | f: filter"
 	case "Journal":
 		return "a: add | Enter/e/space: toggle/open | D: delete | w: this week | d: dir"
 	case "Notes":

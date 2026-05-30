@@ -30,7 +30,7 @@ go run .
 | `e` / `space` | Toggle folder or open file (Journal/Notes/Books) |
 | `w` | Edit current week journal file |
 | `d` | Open current tab directory in a new terminal (Journal/Notes/Books) |
-| `D` | Delete selected note/journal/book (confirm with y/n) |
+| `D` | Delete selected item (confirm with y/n) |
 | `n` / `p` | Next/previous month (Calendar) |
 | `t` | Today in Calendar |
 | `x` / `space` | Toggle todo or habit |
