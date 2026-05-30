@@ -110,6 +110,7 @@ type model struct {
 	journalEntries []treeEntry
 	notesEntries   []treeEntry
 	booksEntries   []treeEntry
+	confirmDelete  *deleteConfirm
 }
 
 type treeEntry struct {
@@ -118,6 +119,13 @@ type treeEntry struct {
 	IsDir  bool
 	Depth  int
 	IsRoot bool
+}
+
+type deleteConfirm struct {
+	Tab   string
+	Path  string
+	Title string
+	IsDir bool
 }
 
 func (m model) tabNames() []string {
@@ -453,12 +461,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.status = "todo added"
 					return m, loadTodos(m.db)
 				case "Notes":
-					_ = content.AddNote(m.notesDir, text)
+					_ = content.AddNoteAtPath(selectedCreateDir(m.notesDir, m.notesEntries, m.notesCursor), text)
 					m.status = "note added"
 					m.notesCursor = 0
 					return m, func() tea.Msg { return journalRefreshMsg{} }
 				case "Journal":
-					_ = content.AddJournalEntry(m.journalDir, text)
+					_ = content.AddJournalEntryAtPath(selectedCreateDir(m.journalDir, m.journalEntries, m.journalCursor), text)
 					m.status = "journal entry added"
 					m.journalCursor = 0
 					return m, func() tea.Msg { return journalRefreshMsg{} }
@@ -466,6 +474,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
+	}
+	if m.confirmDelete != nil {
+		if k, ok := msg.(tea.KeyMsg); ok {
+			switch k.String() {
+			case "y", "Y":
+				if !m.confirmDelete.IsDir {
+					_ = os.Remove(m.confirmDelete.Path)
+					m.status = "deleted"
+					ensureTreeEntries(&m, m.confirmDelete.Tab)
+				} else {
+					m.status = "cannot delete folder"
+				}
+			case "n", "N", "esc":
+				m.status = "delete cancelled"
+			}
+			m.confirmDelete = nil
+			return m, nil
+		}
+		return m, nil
 	}
 	switch t := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -514,7 +541,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "calendar previous month"
 				return m, loadCalendar(m.calMonth, m.calendarICS)
 			}
-		case "T":
+		case "t":
 			if m.tabNames()[m.tab] == "Calendar" {
 				m.calMonth = firstOfMonth(time.Now())
 				m.status = "calendar current month"
@@ -600,11 +627,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k":
 			ensureTreeEntries(&m, activeTab)
 			m = moveUp(m)
-		case "x", " ":
+		case "D":
+			if activeTab == "Journal" || activeTab == "Notes" || activeTab == "Books" {
+				entries, cursor := entriesForTab(&m, activeTab)
+				path, isDir := selectedTreePath(entries, cursor)
+				if path == "" {
+					m.status = "nothing selected"
+					return m, nil
+				}
+				m.confirmDelete = &deleteConfirm{Tab: activeTab, Path: path, Title: filepath.Base(path), IsDir: isDir}
+				m.status = "Delete " + filepath.Base(path) + "? (y/n)"
+				return m, nil
+			}
+		case "x":
 			active := m.tabNames()[m.tab]
 			if active == "Todos" && store.ToggleVisibleTodo(m.db, m.todoFilter, m.todoCursor) {
 				_ = store.Save(m.dataDir, m.db)
 				m.status = "todo toggled"
+			}
+			if active == "Habits" && len(m.db.Habits) > 0 {
+				i := m.habitCursor
+				m.db.Habits[i].Completed = !m.db.Habits[i].Completed
+				_ = store.Save(m.dataDir, m.db)
+				m.status = "habit toggled"
+			}
+		case " ":
+			active := m.tabNames()[m.tab]
+			if active == "Journal" || active == "Notes" || active == "Books" {
+				entries, cursor := entriesForTab(&m, active)
+				path, isDir := selectedTreePath(entries, cursor)
+				if isDir {
+					updated := toggleTree(m.db, strings.ToLower(active), dirForTab(&m, active), path, allowForTab(active))
+					setEntriesForTab(&m, active, updated)
+					_ = store.Save(m.dataDir, m.db)
+					m.status = "section toggled"
+					return m, nil
+				}
 			}
 			if active == "Habits" && len(m.db.Habits) > 0 {
 				i := m.habitCursor
@@ -706,7 +764,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, loadCustomTab(t.Name, t.Command)
 				}
 			}
-		case "t":
+		case "T":
 			if m.tabNames()[m.tab] == "GitHub" && len(m.githubPRs) > 0 {
 				pr := m.githubPRs[m.ghCursor]
 				store.AddTodo(m.db, fmt.Sprintf("Review PR #%d: %s", pr.Number, pr.Title))
@@ -967,13 +1025,13 @@ func lookupTabHint(cfg *config.Config, name string) string {
 	case "Todos":
 		return "x/space: toggle | f: filter"
 	case "Journal":
-		return "a: add | Enter/e: toggle/open | w: this week | d: dir"
+		return "a: add | Enter/e/space: toggle/open | D: delete | w: this week | d: dir"
 	case "Notes":
-		return "a: add | Enter/e: toggle/open | d: dir"
+		return "a: add | Enter/e/space: toggle/open | D: delete | d: dir"
 	case "Books":
-		return "Enter/e: toggle/open | d: dir"
+		return "Enter/e/space: toggle/open | D: delete | d: dir"
 	case "GitHub":
-		return "[:] sections | Enter: open | t: todo"
+		return "[:] sections | Enter: open | T: todo"
 	case "Habits":
 		return "x/space: toggle"
 	default:
@@ -1164,8 +1222,73 @@ func ensureTreeEntries(m *model, active string) {
 	}
 }
 
+func allowForTab(name string) func(string) bool {
+	switch name {
+	case "Journal", "Notes":
+		return allowMarkdown
+	case "Books":
+		return allowBook
+	default:
+		return allowMarkdown
+	}
+}
+
+func entriesForTab(m *model, name string) ([]treeEntry, int) {
+	switch name {
+	case "Journal":
+		return m.journalEntries, m.journalCursor
+	case "Notes":
+		return m.notesEntries, m.notesCursor
+	case "Books":
+		return m.booksEntries, m.booksCursor
+	default:
+		return nil, 0
+	}
+}
+
+func setEntriesForTab(m *model, name string, entries []treeEntry) {
+	switch name {
+	case "Journal":
+		m.journalEntries = entries
+	case "Notes":
+		m.notesEntries = entries
+	case "Books":
+		m.booksEntries = entries
+	}
+}
+
+func dirForTab(m *model, name string) string {
+	switch name {
+	case "Journal":
+		return m.journalDir
+	case "Notes":
+		return m.notesDir
+	case "Books":
+		return m.booksDir
+	default:
+		return ""
+	}
+}
+
 func treeKey(scope, path string) string {
 	return scope + ":" + path
+}
+
+func selectedCreateDir(root string, entries []treeEntry, cursor int) string {
+	if len(entries) == 0 {
+		return root
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(entries) {
+		cursor = len(entries) - 1
+	}
+	entry := entries[cursor]
+	if entry.IsDir {
+		return entry.Path
+	}
+	return filepath.Dir(entry.Path)
 }
 
 func renderTodos(db *store.DB, filter store.TodoFilter, cursor int) []string {
