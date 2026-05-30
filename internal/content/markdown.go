@@ -35,11 +35,29 @@ func AddNote(notesDir, text string) error {
 	return os.WriteFile(path, []byte(""), 0o600)
 }
 
+func AddNoteAtPath(dir, text string) error {
+	name := normalizeFilename(text) + ".md"
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(""), 0o600)
+}
+
 func AddJournalEntry(journalDir, text string) error {
 	// Normalize the text to be a valid filename (lowercase, dashes instead of spaces)
 	name := normalizeFilename(text) + ".md"
 	path := filepath.Join(journalDir, name)
 	// Create empty file - user will fill it in editor
+	return os.WriteFile(path, []byte(""), 0o600)
+}
+
+func AddJournalEntryAtPath(dir, text string) error {
+	name := normalizeFilename(text) + ".md"
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
 	return os.WriteFile(path, []byte(""), 0o600)
 }
 
