@@ -261,15 +261,13 @@ func BuildFileTree(root string, allow func(name string) bool) (*TreeNode, error)
 				continue
 			}
 			isLast := i == len(parts)-1
-			if isLast && d.IsDir() {
-				break
-			}
 			if isLast && !d.IsDir() && allow != nil && !allow(part) {
 				return nil
 			}
+			isDir := !isLast || d.IsDir()
 			child := findChild(curr, part)
 			if child == nil {
-				child = &TreeNode{Name: part, Path: filepath.Join(curr.Path, part), IsDir: d.IsDir()}
+				child = &TreeNode{Name: part, Path: filepath.Join(curr.Path, part), IsDir: isDir}
 				curr.Children = append(curr.Children, child)
 			}
 			if child.IsDir {

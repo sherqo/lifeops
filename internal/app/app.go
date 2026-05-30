@@ -472,6 +472,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = t.Width
 		m.height = t.Height
 	case tea.KeyMsg:
+		activeTab := m.tabNames()[m.tab]
+		ensureTreeEntries(&m, activeTab)
 		switch t.String() {
 		case "q", "ctrl+c", ":q":
 			return m, tea.Quit
@@ -534,7 +536,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.journalEntries = toggleTree(m.db, "journal", path, m.journalEntries)
+					m.journalEntries = toggleTree(m.db, "journal", m.journalDir, path, allowMarkdown)
 					m.status = "journal section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -549,7 +551,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.notesEntries = toggleTree(m.db, "notes", path, m.notesEntries)
+					m.notesEntries = toggleTree(m.db, "notes", m.notesDir, path, allowMarkdown)
 					m.status = "notes section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -564,7 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.booksEntries = toggleTree(m.db, "books", path, m.booksEntries)
+					m.booksEntries = toggleTree(m.db, "books", m.booksDir, path, allowBook)
 					m.status = "books section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -593,8 +595,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, openDirCmd(m.booksDir)
 			}
 		case "j":
+			ensureTreeEntries(&m, activeTab)
 			m = moveDown(m)
 		case "k":
+			ensureTreeEntries(&m, activeTab)
 			m = moveUp(m)
 		case "x", " ":
 			active := m.tabNames()[m.tab]
@@ -623,7 +627,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.journalEntries = toggleTree(m.db, "journal", path, m.journalEntries)
+					m.journalEntries = toggleTree(m.db, "journal", m.journalDir, path, allowMarkdown)
 					m.status = "journal section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -638,7 +642,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.notesEntries = toggleTree(m.db, "notes", path, m.notesEntries)
+					m.notesEntries = toggleTree(m.db, "notes", m.notesDir, path, allowMarkdown)
 					m.status = "notes section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -653,7 +657,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if isDir {
-					m.booksEntries = toggleTree(m.db, "books", path, m.booksEntries)
+					m.booksEntries = toggleTree(m.db, "books", m.booksDir, path, allowBook)
 					m.status = "books section toggled"
 					_ = store.Save(m.dataDir, m.db)
 					return m, nil
@@ -819,18 +823,21 @@ func moveDown(m model) model {
 		m.habitCursor++
 	}
 	if m.tabNames()[m.tab] == "Journal" {
+		m.journalEntries = ensureEntriesForTab(m.journalEntries, "journal", m.journalDir, m.db, allowMarkdown)
 		n := len(m.journalEntries)
 		if m.journalCursor < n-1 {
 			m.journalCursor++
 		}
 	}
 	if m.tabNames()[m.tab] == "Notes" {
+		m.notesEntries = ensureEntriesForTab(m.notesEntries, "notes", m.notesDir, m.db, allowMarkdown)
 		n := len(m.notesEntries)
 		if m.notesCursor < n-1 {
 			m.notesCursor++
 		}
 	}
 	if m.tabNames()[m.tab] == "Books" {
+		m.booksEntries = ensureEntriesForTab(m.booksEntries, "books", m.booksDir, m.db, allowBook)
 		n := len(m.booksEntries)
 		if m.booksCursor < n-1 {
 			m.booksCursor++
@@ -1001,24 +1008,15 @@ func loadCustomTab(name string, cmd []string) tea.Cmd {
 }
 
 func renderJournal(journalDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
-	return renderTreeTab("journal", journalDir, cursor, db, func(name string) bool {
-		lower := strings.ToLower(name)
-		return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
-	}, "Set journal_dir in ~/.config/lifeops/config.json", "No journal files - press 'a' to create one")
+	return renderTreeTab("journal", journalDir, cursor, db, allowMarkdown, "Set journal_dir in ~/.config/lifeops/config.json", "No journal files - press 'a' to create one")
 }
 
 func renderNotes(notesDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
-	return renderTreeTab("notes", notesDir, cursor, db, func(name string) bool {
-		lower := strings.ToLower(name)
-		return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
-	}, "Set notes_dir in ~/.config/lifeops/config.json", "No notes - press 'a' to create one")
+	return renderTreeTab("notes", notesDir, cursor, db, allowMarkdown, "Set notes_dir in ~/.config/lifeops/config.json", "No notes - press 'a' to create one")
 }
 
 func renderBooks(booksDir string, cursor int, db *store.DB) ([]string, []treeEntry) {
-	return renderTreeTab("books", booksDir, cursor, db, func(name string) bool {
-		lower := strings.ToLower(name)
-		return strings.HasSuffix(lower, ".pdf") || strings.HasSuffix(lower, ".epub") || strings.HasSuffix(lower, ".mobi")
-	}, "Set books_dir in ~/.config/lifeops/config.json", "No books found")
+	return renderTreeTab("books", booksDir, cursor, db, allowBook, "Set books_dir in ~/.config/lifeops/config.json", "No books found")
 }
 
 func renderTreeTab(key, root string, cursor int, db *store.DB, allow func(string) bool, missingHint string, emptyHint string) ([]string, []treeEntry) {
@@ -1053,6 +1051,16 @@ func renderTreeTab(key, root string, cursor int, db *store.DB, allow func(string
 		lines = append(lines, itemStyle.Render(label))
 	}
 	return lines, entries
+}
+
+func allowMarkdown(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+}
+
+func allowBook(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".pdf") || strings.HasSuffix(lower, ".epub") || strings.HasSuffix(lower, ".mobi")
 }
 
 func flattenTree(root *content.TreeNode, key string, db *store.DB) []treeEntry {
@@ -1121,13 +1129,39 @@ func selectedTreePath(entries []treeEntry, cursor int) (string, bool) {
 	return entry.Path, entry.IsDir
 }
 
-func toggleTree(db *store.DB, key, path string, entries []treeEntry) []treeEntry {
+func toggleTree(db *store.DB, key, root, path string, allow func(string) bool) []treeEntry {
 	if strings.TrimSpace(path) == "" {
-		return entries
+		return nil
 	}
 	current := store.IsExpanded(db, treeKey(key, path))
 	store.SetExpanded(db, treeKey(key, path), !current)
-	return entries
+	rootNode, err := content.BuildFileTree(root, allow)
+	if err != nil || rootNode == nil {
+		return nil
+	}
+	return flattenTree(rootNode, key, db)
+}
+
+func ensureEntriesForTab(entries []treeEntry, key, root string, db *store.DB, allow func(string) bool) []treeEntry {
+	if len(entries) > 0 {
+		return entries
+	}
+	rootNode, err := content.BuildFileTree(root, allow)
+	if err != nil || rootNode == nil {
+		return entries
+	}
+	return flattenTree(rootNode, key, db)
+}
+
+func ensureTreeEntries(m *model, active string) {
+	switch active {
+	case "Journal":
+		m.journalEntries = ensureEntriesForTab(m.journalEntries, "journal", m.journalDir, m.db, allowMarkdown)
+	case "Notes":
+		m.notesEntries = ensureEntriesForTab(m.notesEntries, "notes", m.notesDir, m.db, allowMarkdown)
+	case "Books":
+		m.booksEntries = ensureEntriesForTab(m.booksEntries, "books", m.booksDir, m.db, allowBook)
+	}
 }
 
 func treeKey(scope, path string) string {
