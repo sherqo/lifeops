@@ -56,3 +56,4 @@ Override with env vars `LIFEOPS_NOTES_DIR`, `LIFEOPS_JOURNAL_DIR`, and `LIFEOPS_
 - ICS calendar feeds configured in `config.json` for the Calendar tab.
 - `okular` for opening books in the Books tab.
 - A terminal emulator for `d` (uses `$TERMINAL`, `x-terminal-emulator`, `gnome-terminal`, then `xterm`).
+- `trash-cli` for moving files to trash instead of permanent deletion on `D`.

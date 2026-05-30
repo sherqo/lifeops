@@ -480,8 +480,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch k.String() {
 			case "y", "Y":
 				if !m.confirmDelete.IsDir {
-					_ = os.Remove(m.confirmDelete.Path)
+					_ = exec.Command("trash-put", m.confirmDelete.Path).Run()
 					m.status = "deleted"
+					setEntriesForTab(&m, m.confirmDelete.Tab, nil)
 					ensureTreeEntries(&m, m.confirmDelete.Tab)
 				} else {
 					m.status = "cannot delete folder"
