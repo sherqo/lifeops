@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+type TreeNode struct {
+	Name     string
+	Path     string
+	IsDir    bool
+	Children []*TreeNode
+}
+
 func EnsureDirs(notesDir, journalDir, booksDir string) error {
 	if err := os.MkdirAll(notesDir, 0o700); err != nil {
 		return err
@@ -226,6 +233,83 @@ func RecentNotesFiles(notesDir string) []string {
 		out = append(out, f.path)
 	}
 	return out
+}
+
+func BuildFileTree(root string, allow func(name string) bool) (*TreeNode, error) {
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return nil, err
+	}
+
+	rootNode := &TreeNode{Name: filepath.Base(root), Path: root, IsDir: true}
+
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		parts := strings.Split(rel, string(filepath.Separator))
+		curr := rootNode
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			isLast := i == len(parts)-1
+			if isLast && d.IsDir() {
+				break
+			}
+			if isLast && !d.IsDir() && allow != nil && !allow(part) {
+				return nil
+			}
+			child := findChild(curr, part)
+			if child == nil {
+				child = &TreeNode{Name: part, Path: filepath.Join(curr.Path, part), IsDir: d.IsDir()}
+				curr.Children = append(curr.Children, child)
+			}
+			if child.IsDir {
+				curr = child
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sortTree(rootNode)
+	return rootNode, nil
+}
+
+func findChild(node *TreeNode, name string) *TreeNode {
+	for _, c := range node.Children {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+func sortTree(node *TreeNode) {
+	if node == nil {
+		return
+	}
+	for _, child := range node.Children {
+		sortTree(child)
+	}
+	sort.SliceStable(node.Children, func(i, j int) bool {
+		a := node.Children[i]
+		b := node.Children[j]
+		if a.IsDir != b.IsDir {
+			return a.IsDir
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	})
 }
 
 func RecentBookFiles(booksDir string) []string {

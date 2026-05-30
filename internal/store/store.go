@@ -30,11 +30,16 @@ type Todo struct {
 type DB struct {
 	Todos  []Todo  `json:"todos"`
 	Habits []Habit `json:"habits"`
+	UI     UIState `json:"ui"`
 }
 
 type Habit struct {
 	Name      string `json:"name"`
 	Completed bool   `json:"completed"`
+}
+
+type UIState struct {
+	Expanded map[string]bool `json:"expanded"`
 }
 
 func Load(dataDir string) (*DB, error) {
@@ -53,6 +58,9 @@ func Load(dataDir string) (*DB, error) {
 	var db DB
 	if err := json.Unmarshal(raw, &db); err != nil {
 		return nil, err
+	}
+	if db.UI.Expanded == nil {
+		db.UI.Expanded = map[string]bool{}
 	}
 	return &db, nil
 }
@@ -118,4 +126,28 @@ func EnsureDefaultHabits(db *DB) {
 		return
 	}
 	db.Habits = []Habit{{Name: "Hydrate"}, {Name: "Read 20 minutes"}, {Name: "Workout"}}
+}
+
+func IsExpanded(db *DB, key string) bool {
+	if db == nil {
+		return false
+	}
+	if db.UI.Expanded == nil {
+		return false
+	}
+	return db.UI.Expanded[key]
+}
+
+func SetExpanded(db *DB, key string, expanded bool) {
+	if db == nil {
+		return
+	}
+	if db.UI.Expanded == nil {
+		db.UI.Expanded = map[string]bool{}
+	}
+	if expanded {
+		db.UI.Expanded[key] = true
+		return
+	}
+	delete(db.UI.Expanded, key)
 }
